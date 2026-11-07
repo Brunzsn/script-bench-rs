@@ -1,10 +1,13 @@
 use std::rc::Rc;
 
+use anyhow::{anyhow, Result};
 use rand::RngExt;
 #[cfg(feature = "wasmi")]
 use wasmi::*;
 #[cfg(feature = "wasmtime")]
 use wasmtime::*;
+
+use crate::harness::{read_script_bytes, Case, Value};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RustData(Rc<str>);
@@ -53,76 +56,90 @@ impl HostState {
     }
 }
 
-pub fn sort_userdata(
-    run: impl FnOnce(&mut dyn FnMut()),
-    validate: impl FnOnce(Vec<RustData>),
-) -> anyhow::Result<()> {
-    let engine = Engine::default();
-    let wasm = include_bytes!("../scripts/sort_userdata.wasm");
-    let module = Module::new(&engine, wasm)?;
+pub struct WasmEngine {
+    store: Store<HostState>,
+    bench: TypedFunc<u32, u32>,
+    get_id: TypedFunc<u32, u32>,
+}
 
-    let mut store = Store::new(&engine, Default::default());
-    let rustdata_new = Func::wrap(
-        &mut store,
-        |mut caller: Caller<'_, HostState>, off: u32, len: u32| -> u32 {
-            let buffer =
-                &caller.data().memory.unwrap().data(&mut caller)[off as usize..][..len as usize];
-            let rd = RustData(std::str::from_utf8(buffer).unwrap().into());
-            caller.data_mut().alloc(rd)
-        },
-    );
-    let rustdata_delete = Func::wrap(
-        &mut store,
-        |mut caller: Caller<'_, HostState>, id: u32| -> () {
-            caller.data_mut().dealloc(id);
-        },
-    );
-    let rustdata_lt = Func::wrap(
-        &mut store,
-        |caller: Caller<'_, HostState>, i: u32, j: u32| -> u32 {
-            let data = caller.data();
-            (data.get(i) < data.get(j)) as u32
-        },
-    );
+impl crate::harness::Engine for WasmEngine {
+    fn setup(case: &Case) -> Result<Self> {
+        let engine = Engine::default();
+        let wasm = read_script_bytes(case.scripts.wasm_module)?;
+        let module = Module::new(&engine, wasm.as_slice()).map_err(|error| anyhow!("{error}"))?;
 
-    let mut linker = <Linker<HostState>>::new(&engine);
-    linker.func_wrap("RustData", "rand", |n: u32| rand::rng().random_range(0..n))?;
-    #[cfg(feature = "wasmtime")]
-    {
-        linker
-            .define(&store, "RustData", "rustdata_new", rustdata_new)?
-            .define(&store, "RustData", "rustdata_delete", rustdata_delete)?
-            .define(&store, "RustData", "rustdata_lt", rustdata_lt)?;
-    }
-    #[cfg(feature = "wasmi")]
-    {
-        linker
-            .define("RustData", "rustdata_new", rustdata_new)?
-            .define("RustData", "rustdata_delete", rustdata_delete)?
-            .define("RustData", "rustdata_lt", rustdata_lt)?;
-    }
+        let mut store = Store::new(&engine, Default::default());
+        let rustdata_new = Func::wrap(
+            &mut store,
+            |mut caller: Caller<'_, HostState>, off: u32, len: u32| -> u32 {
+                let buffer = &caller.data().memory.unwrap().data(&mut caller)
+                    [off as usize..][..len as usize];
+                let rd = RustData(std::str::from_utf8(buffer).unwrap().into());
+                caller.data_mut().alloc(rd)
+            },
+        );
+        let rustdata_delete = Func::wrap(
+            &mut store,
+            |mut caller: Caller<'_, HostState>, id: u32| -> () {
+                caller.data_mut().dealloc(id);
+            },
+        );
+        let rustdata_lt = Func::wrap(
+            &mut store,
+            |caller: Caller<'_, HostState>, i: u32, j: u32| -> u32 {
+                let data = caller.data();
+                (data.get(i) < data.get(j)) as u32
+            },
+        );
 
-    #[cfg(feature = "wasmtime")]
-    let instance = linker.instantiate(&mut store, &module)?;
-    #[cfg(feature = "wasmi")]
-    let instance = linker.instantiate_and_start(&mut store, &module)?;
-    store.data_mut().memory = instance.get_memory(&mut store, "memory");
-    let bench = instance.get_typed_func::<u32, u32>(&mut store, "bench")?;
-    let get_id = instance.get_typed_func::<u32, u32>(&mut store, "get_id")?;
+        let mut linker = <Linker<HostState>>::new(&engine);
+        linker.func_wrap("RustData", "rand", |n: u32| {
+            rand::rng().random_range(0..n)
+        })?;
+        #[cfg(feature = "wasmtime")]
+        {
+            linker
+                .define(&store, "RustData", "rustdata_new", rustdata_new)?
+                .define(&store, "RustData", "rustdata_delete", rustdata_delete)?
+                .define(&store, "RustData", "rustdata_lt", rustdata_lt)?;
+        }
+        #[cfg(feature = "wasmi")]
+        {
+            linker
+                .define("RustData", "rustdata_new", rustdata_new)?
+                .define("RustData", "rustdata_delete", rustdata_delete)?
+                .define("RustData", "rustdata_lt", rustdata_lt)?;
+        }
 
-    // Run the benchmark once to get the result for validation
-    let length = bench.call(&mut store, 1)?;
-    let result = (0..length)
-        .map(|i| {
-            let id = get_id.call(&mut store, i)?;
-            Ok(store.data().get(id).clone())
+        #[cfg(feature = "wasmtime")]
+        let instance = linker.instantiate(&mut store, &module)?;
+        #[cfg(feature = "wasmi")]
+        let instance = linker.instantiate_and_start(&mut store, &module)?;
+        store.data_mut().memory = instance.get_memory(&mut store, "memory");
+        let bench = instance.get_typed_func::<u32, u32>(&mut store, "bench")?;
+        let get_id = instance.get_typed_func::<u32, u32>(&mut store, "get_id")?;
+
+        Ok(Self {
+            store,
+            bench,
+            get_id,
         })
-        .collect::<Result<Vec<_>, Error>>()?;
-    validate(result);
+    }
 
-    run(&mut || {
-        bench.call(&mut store, 0).unwrap();
-    });
+    fn run(&mut self) -> Result<()> {
+        self.bench.call(&mut self.store, 0)?;
+        Ok(())
+    }
 
-    Ok(())
+    fn run_checked(&mut self) -> Result<Value> {
+        let length = self.bench.call(&mut self.store, 1)?;
+        let mut items = Vec::with_capacity(length as usize);
+        for index in 0..length {
+            let id = self.get_id.call(&mut self.store, index)?;
+            items.push(Value::Object(
+                self.store.data().get(id).0.to_string(),
+            ));
+        }
+        Ok(Value::List(items))
+    }
 }

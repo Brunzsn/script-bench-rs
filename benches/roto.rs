@@ -1,32 +1,18 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use script_bench::roto::RustData;
+
+use script_bench::roto::RotoEngine;
 
 fn benchmark(c: &mut Criterion) {
-    script_bench::roto::sort_userdata(
-        |func| {
-            c.bench_function("Sort Rust objects", |b| b.iter(|| func()));
-        },
-        |list| {
-            // Validate that the results are sorted
-            let mut count = 0;
-            let mut prev = RustData::default();
-            list.into_iter().for_each(|next| {
-                let next = next.0;
-                assert!(&*prev.0 <= &*next.0);
-                prev = next.clone();
-                count += 1;
-            });
-
-            assert_eq!(count, 10000);
-        },
-    )
+    script_bench::harness::run_cases::<RotoEngine>(|name, func| {
+        c.bench_function(name, |b| b.iter(|| func()));
+    })
     .unwrap();
 }
 
 criterion_group! {
     name = benches;
     config = Criterion::default().sample_size(10);
-    targets = benchmark
+    targets = benchmark,
 }
 
 criterion_main!(benches);

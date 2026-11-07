@@ -1,5 +1,7 @@
 #[cfg(feature = "boa")]
 pub mod boa;
+pub mod cases;
+pub mod harness;
 #[cfg(feature = "koto")]
 pub mod koto;
 #[cfg(feature = "martite")]

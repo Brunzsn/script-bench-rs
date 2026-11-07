@@ -24,6 +24,16 @@ The Martite benchmark uses a sibling checkout at `../martite` for its path depen
 
 The `benchmarks` workflow runs the full suite on `ubuntu-latest`. Those results are saved as artifacts and are not directly comparable to the macOS numbers below.
 
+## Adding a benchmark case
+
+A case is one entry in the registry plus one script per language:
+
+1. Add the scripts under `scripts/`.
+2. Add a `Case` entry in `src/cases/` and list it in `src/cases/mod.rs`.
+3. For WebAssembly, point `wasm_source` at a `.wasm.rs` file; `bench.py` compiles every wasm source declared by the registry.
+
+Everything else (criterion targets, validation reporting, plots) is driven by the registry.
+
 ## Environment
 
 | Component | Version |

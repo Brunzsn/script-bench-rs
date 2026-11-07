@@ -1,30 +1,11 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 
-use script_bench::mlua::RustData;
+use script_bench::mlua::MluaEngine;
 
 fn benchmark(c: &mut Criterion) {
-    script_bench::mlua::sort_userdata(
-        |func| {
-            // Benchmark the function
-            c.bench_function("Sort Rust objects", |b| {
-                b.iter(|| func());
-            });
-        },
-        |table| {
-            // Validate that the results are sorted
-            let mut count = 0;
-            let mut prev = RustData::default();
-            table
-                .for_each_value(|next: mlua::UserDataRef<RustData>| {
-                    assert!(prev <= *next);
-                    prev = next.clone();
-                    count += 1;
-                    Ok(())
-                })
-                .unwrap();
-            assert_eq!(count, 10000);
-        },
-    )
+    script_bench::harness::run_cases::<MluaEngine>(|name, func| {
+        c.bench_function(name, |b| b.iter(|| func()));
+    })
     .unwrap();
 }
 

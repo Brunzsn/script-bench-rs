@@ -1,10 +1,13 @@
 use std::rc::Rc;
 
+use anyhow::{anyhow, Result};
 use mlua::{
-    Function, Lua, LuaString, MetaMethod, Result, Table, UserData, UserDataMethods,
-    UserDataRef, UserDataRegistry,
+    Function, Lua, LuaString, MetaMethod, Table, UserData, UserDataMethods, UserDataRef,
+    UserDataRegistry,
 };
 use rand::RngExt;
+
+use crate::harness::{read_script, Case, Engine, Value};
 
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RustData(Rc<str>);
@@ -22,42 +25,88 @@ impl UserData for RustData {
     }
 }
 
-pub fn sort_userdata(
-    run: impl FnOnce(&mut dyn FnMut()),
-    validate: impl FnOnce(Table),
-) -> Result<()> {
-    let lua = Lua::new();
+pub struct MluaEngine {
+    // The function handle must be dropped before the Lua state.
+    bench: Function,
+    _lua: Lua,
+}
 
-    let globals = lua.globals();
-    globals.set("RustData", lua.create_proxy::<RustData>()?)?;
-    globals.set(
-        "rand",
-        Function::wrap_raw(|n: u32| rand::rng().random_range(0..n)),
-    )?;
+impl Engine for MluaEngine {
+    fn setup(case: &Case) -> Result<Self> {
+        let lua = Lua::new();
 
-    #[cfg(feature = "mlua_luau")]
-    {
-        lua.sandbox(true)?;
-        lua.set_jit_options(mlua::state::JitOptions::new().inliner(true));
-        lua.set_compiler(mlua::chunk::Compiler::new().set_optimization_level(2));
+        let globals = lua.globals();
+        let rust_data = lua
+            .create_proxy::<RustData>()
+            .map_err(|error| anyhow!("{error}"))?;
+        globals
+            .set("RustData", rust_data)
+            .map_err(|error| anyhow!("{error}"))?;
+        globals
+            .set(
+                "rand",
+                Function::wrap_raw(|n: u32| rand::rng().random_range(0..n)),
+            )
+            .map_err(|error| anyhow!("{error}"))?;
+
+        #[cfg(feature = "mlua_luau")]
+        {
+            lua.sandbox(true).map_err(|error| anyhow!("{error}"))?;
+            lua.set_jit_options(mlua::state::JitOptions::new().inliner(true));
+            lua.set_compiler(mlua::chunk::Compiler::new().set_optimization_level(2));
+        }
+
+        #[cfg(feature = "mlua_lua55")]
+        {
+            let table = lua
+                .globals()
+                .get::<mlua::Table>("table")
+                .map_err(|error| anyhow!("{error}"))?;
+            table
+                .set(
+                    "create",
+                    lua.create_function(|lua, narr: usize| {
+                        lua.create_table_with_capacity(narr, 0)
+                    })
+                    .map_err(|error| anyhow!("{error}"))?,
+                )
+                .map_err(|error| anyhow!("{error}"))?;
+        }
+
+        let script = read_script(case.scripts.lua)?;
+        lua.load(script.as_str())
+            .exec()
+            .map_err(|error| anyhow!("{error}"))?;
+
+        let bench = lua
+            .globals()
+            .get::<Function>("bench")
+            .map_err(|error| anyhow!("{error}"))?;
+
+        Ok(Self { bench, _lua: lua })
     }
 
-    #[cfg(feature = "mlua_lua55")]
-    {
-        let table = lua.globals().get::<mlua::Table>("table")?;
-        table.set(
-            "create",
-            lua.create_function(|lua, narr: usize| lua.create_table_with_capacity(narr, 0))?,
-        )?;
+    fn run(&mut self) -> Result<()> {
+        self.bench
+            .call::<()>(())
+            .map_err(|error| anyhow!("{error}"))?;
+        Ok(())
     }
 
-    lua.load(include_str!("../scripts/sort_userdata.lua"))
-        .exec()?;
+    fn run_checked(&mut self) -> Result<Value> {
+        let table: Table = self
+            .bench
+            .call(())
+            .map_err(|error| anyhow!("{error}"))?;
 
-    let func = lua.globals().get::<Function>("bench")?;
+        let mut items = Vec::new();
+        table
+            .for_each_value(|next: UserDataRef<RustData>| {
+                items.push(Value::Object(next.0.to_string()));
+                Ok(())
+            })
+            .map_err(|error| anyhow!("{error}"))?;
 
-    validate(func.call(())?);
-    run(&mut || func.call::<()>(()).unwrap());
-
-    Ok(())
+        Ok(Value::List(items))
+    }
 }

@@ -5,11 +5,23 @@
 # ]
 # ///
 
-import json
 import glob
+import json
 import subprocess
-from os.path import splitext, basename
+import sys
+from os.path import basename, splitext
 import matplotlib.pyplot as plt
+
+
+def registry(*args):
+    proc = subprocess.run(
+        ["cargo", "run", "--quiet", "--example", "list_cases", "--", *args],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=True,
+    )
+    return [line for line in proc.stdout.splitlines() if line.strip()]
 
 
 def run_benchmark(name):
@@ -29,32 +41,57 @@ def run_benchmark(name):
     return res
 
 
-# Compile webassembly modules
-subprocess.run(
-    "rustc --target wasm32-unknown-unknown -Cpanic=abort -O --crate-name sort_userdata scripts/sort_userdata.wasm.rs -o scripts/sort_userdata.wasm",
-    shell=True,
-    check=True,
-)
+# Compile the wasm modules declared by the case registry.
+for entry in registry("wasm"):
+    source, module = entry.split("\t")
+    crate_name = splitext(basename(source))[0].split(".")[0]
+    subprocess.run(
+        "rustc --target wasm32-unknown-unknown -Cpanic=abort -O "
+        f"--crate-name {crate_name} {source} -o {module}",
+        shell=True,
+        check=True,
+    )
+
+cases = registry()
 
 benches = dict()
-ids = set()
 for f in glob.glob("benches/*.rs"):
     name = splitext(basename(f))[0]
     benches[name] = dict()
-    results = run_benchmark(name)
-    for res in results:
+    for res in run_benchmark(name):
         benches[name][res["id"]] = res
-        ids.add(res["id"])
 
 with open("target/benchmark-results.json", "w") as f:
     json.dump(benches, f, indent=2)
 
-for id in ids:
+known = set(cases)
+unexpected = {
+    (engine, bench_id)
+    for engine, results in benches.items()
+    for bench_id in results
+    if bench_id not in known
+}
+if unexpected:
+    raise RuntimeError(
+        "benchmark ids missing from the case registry: "
+        f"{sorted(unexpected)}"
+    )
+
+for case in cases:
+    rows = [
+        (engine, results[case])
+        for engine, results in benches.items()
+        if case in results
+    ]
+    if not rows:
+        print(f"warning: no benchmark results for {case!r}", file=sys.stderr)
+        continue
+
     fig, ax = plt.subplots()
 
     ymax = 0
-    for (name, bench) in sorted(benches.items(), key=lambda x: x[1][id]["typical"]["estimate"]):
-        val = round(bench[id]["typical"]["estimate"] / 1000000, 2)
+    for (name, bench) in sorted(rows, key=lambda x: x[1]["typical"]["estimate"]):
+        val = round(bench["typical"]["estimate"] / 1000000, 2)
         rect = ax.bar(name, val, width=0.3)
         ax.bar_label(rect, padding=3)
         ymax = max(ymax, val)
@@ -63,7 +100,8 @@ for id in ids:
     ax.set_ylabel("time (ms)", fontweight="bold")
     ax.set_ylim(0, ymax * 1.2)
     fig.autofmt_xdate()
-    fig.suptitle(id, fontsize=18)
+    fig.suptitle(case, fontsize=18)
     fig.tight_layout()
 
-    plt.savefig(f"{id}.png", dpi=300)
+    plt.savefig(f"{case}.png", dpi=300)
+    plt.close(fig)
