@@ -2,6 +2,8 @@
 pub mod boa;
 #[cfg(feature = "koto")]
 pub mod koto;
+#[cfg(feature = "martite")]
+pub mod martite;
 #[cfg(any(feature = "mlua_lua55", feature = "mlua_luau"))]
 pub mod mlua;
 #[cfg(feature = "rhai")]

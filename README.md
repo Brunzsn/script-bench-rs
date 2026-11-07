@@ -4,6 +4,7 @@ The project goal is to benchmark most popular embedded scripting languages for R
 
 - [boa](https://boajs.dev)
 - [koto](https://crates.io/crates/koto)
+- [martite](https://github.com/Brunzsn/Martite)
 - [mlua](https://crates.io/crates/mlua) (Lua 5.5 and Luau)
 - [rhai](https://crates.io/crates/rhai)
 - [roto](https://crates.io/crates/roto)
@@ -19,6 +20,10 @@ Simply run `uv run bench.py` to generate images. It requires `cargo criterion` a
 
 You also must have `wasm32-unknown-unknown` target installed for webassembly benchmarks.
 
+The Martite benchmark uses a sibling checkout at `../martite` for its path dependency. Clone both repositories side by side, or let the GitHub Actions workflow configure the same layout.
+
+The `benchmarks` workflow runs the full suite on `ubuntu-latest`. Those results are saved as artifacts and are not directly comparable to the macOS numbers below.
+
 ## Environment
 
 | Component | Version |
@@ -27,6 +32,7 @@ You also must have `wasm32-unknown-unknown` target installed for webassembly ben
 | rustc | v1.99.0 |
 | boa | v0.22.0 |
 | koto | v0.16.1 |
+| martite | v0.1.0 |
 | mlua | v0.12.2 |
 | rhai | v1.26.1 |
 | roto | v0.12.0 |

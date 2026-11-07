@@ -10,6 +10,7 @@ name = "script_bench"
 [features]
 boa = ["dep:boa_engine", "dep:boa_gc", "dep:boa_runtime"]
 koto = ["dep:koto", "dep:anyhow"]
+martite = ["dep:martite", "dep:anyhow"]
 mlua_lua55 = ["mlua/lua55", "mlua/vendored"]
 mlua_luau = ["mlua/luau-jit"]
 rhai = ["dep:rhai", "dep:itertools", "dep:anyhow"]
@@ -25,6 +26,7 @@ boa_engine = { version = "0.22.0", optional = true }
 boa_gc = { version = "0.22.0", optional = true }
 boa_runtime = { version = "0.22.0", optional = true }
 koto = { version = "0.16.1", optional = true }
+martite = { path = "../martite/crates/martite", optional = true }
 mlua = { version = "0.12.2", optional = true }
 rhai = { version = "1.26.1", optional = true }
 roto = { version = "0.12.0", optional = true, default-features = false }
@@ -49,6 +51,11 @@ required-features = ["boa"]
 name = "koto"
 harness = false
 required-features = ["koto"]
+
+[[bench]]
+name = "martite"
+harness = false
+required-features = ["martite"]
 
 [[bench]]
 name = "mlua_lua55"

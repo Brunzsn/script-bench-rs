@@ -1,0 +1,9 @@
+struct RustData
+
+fn rand(n: int) -> int
+
+fn rust_data_new(key: str) -> RustData
+
+fn rust_data_lt(a: RustData, b: RustData) -> bool
+
+on run() -> list[RustData]

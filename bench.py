@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 def run_benchmark(name):
     print(f"Running benchmark for {name}", flush=True)
     proc = subprocess.run(
-        f"cargo criterion --locked --bench {name} --message-format json --features {name}",
+        f"cargo criterion --bench {name} --message-format json --features {name}",
         shell=True,
         stdout=subprocess.PIPE,
         text=True,
