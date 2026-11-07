@@ -24,6 +24,8 @@ The Martite benchmark uses a sibling checkout at `../martite` for its path depen
 
 The `benchmarks` workflow runs the full suite on `ubuntu-latest`. Those results are saved as artifacts and are not directly comparable to the macOS numbers below.
 
+The `checks` workflow is the fast path for pull requests and pushes: it compiles every engine and runs each registered case once (criterion `--test` mode) without collecting measurements.
+
 ## Adding a benchmark case
 
 A case is one entry in the registry plus one script per language:
