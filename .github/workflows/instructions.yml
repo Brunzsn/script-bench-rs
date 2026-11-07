@@ -1,0 +1,87 @@
+name: instruction counts
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 7 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instructions-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  engine:
+    name: ${{ matrix.engine }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        engine:
+          - boa
+          - koto
+          - martite
+          - mlua_lua55
+          - mlua_luau
+          - rhai
+          - roto
+          - rquickjs
+          - wasmi
+          - wasmtime
+    steps:
+      - name: Checkout benchmark fork
+        uses: actions/checkout@v4
+        with:
+          path: bench
+
+      - name: Checkout Martite
+        uses: actions/checkout@v4
+        with:
+          repository: Brunzsn/Martite
+          path: martite
+          ref: dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: bench
+          key: instructions-${{ matrix.engine }}
+
+      - name: Install Valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y valgrind
+
+      - name: Cache gungraun-runner
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/gungraun-runner
+          key: gungraun-runner-${{ runner.os }}-v1
+
+      - name: Install gungraun-runner
+        run: command -v gungraun-runner >/dev/null || cargo install --version 0.20.0 gungraun-runner
+
+      - name: Build wasm scripts
+        working-directory: bench
+        run: |
+          set -o pipefail
+          cargo run --quiet --example list_cases -- wasm | while IFS=$'\t' read -r source module; do
+            crate_name="$(basename "$source" .rs | cut -d. -f1)"
+            rustc --target wasm32-unknown-unknown -Cpanic=abort -O \
+              --crate-name "$crate_name" "$source" -o "$module"
+          done
+
+      - name: Run instruction benchmark
+        working-directory: bench
+        env:
+          CARGO_PROFILE_BENCH_LTO: "false"
+          CARGO_PROFILE_BENCH_CODEGEN_UNITS: "16"
+        run: cargo bench --bench instructions_${{ matrix.engine }} --features instructions,${{ matrix.engine }}

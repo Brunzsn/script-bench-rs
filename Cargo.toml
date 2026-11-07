@@ -17,10 +17,11 @@ rhai = ["dep:rhai", "dep:itertools"]
 roto = ["dep:roto"]
 wasmi = ["dep:wasmi"]
 wasmtime = ["dep:wasmtime"]
+instructions = ["dep:gungraun"]
 
 [dependencies]
-rand = "0.10.3"
 anyhow = "1.0.104"
+gungraun = { version = "0.20.0", optional = true }
 itertools = { version = "0.15.0", optional = true }
 boa_engine = { version = "0.22.0", optional = true }
 boa_gc = { version = "0.22.0", optional = true }
@@ -91,3 +92,67 @@ required-features = ["wasmi"]
 name = "wasmtime"
 harness = false
 required-features = ["wasmtime"]
+
+[[bench]]
+name = "native"
+harness = false
+
+[[bench]]
+name = "instructions_boa"
+path = "benches/instructions/boa.rs"
+harness = false
+required-features = ["instructions", "boa"]
+
+[[bench]]
+name = "instructions_koto"
+path = "benches/instructions/koto.rs"
+harness = false
+required-features = ["instructions", "koto"]
+
+[[bench]]
+name = "instructions_martite"
+path = "benches/instructions/martite.rs"
+harness = false
+required-features = ["instructions", "martite"]
+
+[[bench]]
+name = "instructions_mlua_lua55"
+path = "benches/instructions/mlua_lua55.rs"
+harness = false
+required-features = ["instructions", "mlua_lua55"]
+
+[[bench]]
+name = "instructions_mlua_luau"
+path = "benches/instructions/mlua_luau.rs"
+harness = false
+required-features = ["instructions", "mlua_luau"]
+
+[[bench]]
+name = "instructions_rhai"
+path = "benches/instructions/rhai.rs"
+harness = false
+required-features = ["instructions", "rhai"]
+
+[[bench]]
+name = "instructions_roto"
+path = "benches/instructions/roto.rs"
+harness = false
+required-features = ["instructions", "roto"]
+
+[[bench]]
+name = "instructions_rquickjs"
+path = "benches/instructions/rquickjs.rs"
+harness = false
+required-features = ["instructions", "rquickjs"]
+
+[[bench]]
+name = "instructions_wasmi"
+path = "benches/instructions/wasmi.rs"
+harness = false
+required-features = ["instructions", "wasmi"]
+
+[[bench]]
+name = "instructions_wasmtime"
+path = "benches/instructions/wasmtime.rs"
+harness = false
+required-features = ["instructions", "wasmtime"]

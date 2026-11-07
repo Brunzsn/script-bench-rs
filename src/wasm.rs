@@ -1,13 +1,13 @@
 use std::rc::Rc;
 
 use anyhow::{anyhow, Result};
-use rand::RngExt;
 #[cfg(feature = "wasmi")]
 use wasmi::*;
 #[cfg(feature = "wasmtime")]
 use wasmtime::*;
 
 use crate::harness::{read_script_bytes, Case, Value};
+use crate::rng;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RustData(Rc<str>);
@@ -93,9 +93,7 @@ impl crate::harness::Engine for WasmEngine {
         );
 
         let mut linker = <Linker<HostState>>::new(&engine);
-        linker.func_wrap("RustData", "rand", |n: u32| {
-            rand::rng().random_range(0..n)
-        })?;
+        linker.func_wrap("RustData", "rand", |n: u32| rng::rand_below(n))?;
         #[cfg(feature = "wasmtime")]
         {
             linker

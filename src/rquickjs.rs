@@ -1,7 +1,6 @@
 use std::rc::Rc;
 
 use anyhow::{anyhow, Result};
-use rand::RngExt;
 use rquickjs::class::{Class, JsClass, Readable, Trace, Tracer};
 use rquickjs::function::{Constructor, This};
 use rquickjs::{
@@ -10,6 +9,7 @@ use rquickjs::{
 };
 
 use crate::harness::{read_script, Case, Engine, Value};
+use crate::rng;
 
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RustData(Rc<str>);
@@ -79,9 +79,8 @@ impl Engine for QuickJsEngine {
             .with(|ctx| -> JsResult<Persistent<Function<'static>>> {
                 let globals = ctx.globals();
 
-                let rand =
-                    Function::new(ctx.clone(), |n: u32| rand::rng().random_range(0..n))?
-                        .with_name("rand")?;
+                let rand = Function::new(ctx.clone(), |n: u32| rng::rand_below(n))?
+                    .with_name("rand")?;
                 globals.set("rand", rand)?;
 
                 Class::<RustData>::define(&globals)?;

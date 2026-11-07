@@ -4,7 +4,7 @@ generate_string = |len|
     data = []
     for i in 0..len
         data.push charset[rand(size charset)]
-    data.to_string()
+    data.iter().to_string()
 
 partition = |arr, lo, hi|
     pivot_idx = ((lo + hi) / 2).floor()

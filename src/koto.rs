@@ -4,6 +4,7 @@ use anyhow::{anyhow, bail, Result};
 use koto::{derive::*, prelude::*, runtime};
 
 use crate::harness::{read_script, Case, Engine, Value};
+use crate::rng;
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, KotoCopy, KotoType)]
 pub struct RustData(pub Rc<str>);
@@ -49,7 +50,8 @@ impl Engine for KotoEngine {
 
         prelude.add_fn("rand", |ctx| match ctx.args() {
             [KValue::Number(n)] => {
-                let res = rand::random::<u32>() as i64 % i64::from(n);
+                let n = i64::from(n);
+                let res = rng::rand_below(n as u32) as i64;
                 Ok(res.into())
             }
             unexpected => unexpected_args("a number", unexpected),

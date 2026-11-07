@@ -1,3 +1,5 @@
+mod common;
+
 use criterion::{criterion_group, criterion_main, Criterion};
 
 use script_bench::rhai::RhaiEngine;
@@ -11,7 +13,7 @@ fn benchmark(c: &mut Criterion) {
 
 criterion_group! {
     name = benches;
-    config = Criterion::default().sample_size(10);
+    config = common::config();
     targets = benchmark,
 }
 

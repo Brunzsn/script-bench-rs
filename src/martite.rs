@@ -1,8 +1,8 @@
 use anyhow::{anyhow, bail, Result};
 use martite::{Engine as Martite, HostSignature, HostType, Instance, Outcome, Plugin};
-use rand::RngExt;
 
 use crate::harness::{read_script, Case, Engine, Value as BenchValue};
+use crate::rng;
 
 pub use martite::HostValue as Value;
 
@@ -41,7 +41,7 @@ impl Engine for MartiteEngine {
             HostSignature::new(vec![HostType::Int], HostType::Int),
             |_cx, args| {
                 let n = args[0].as_int().expect("rand expects an int");
-                Ok(Value::Int(rand::rng().random_range(0..n)))
+                Ok(Value::Int(rng::rand_below(n as u32) as i64))
             },
         );
 

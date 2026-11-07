@@ -2,10 +2,10 @@ use std::rc::Rc;
 
 use anyhow::{anyhow, Result};
 use itertools::Itertools;
-use rand::RngExt;
 use rhai::Array;
 
 use crate::harness::{read_script, Case, Engine, Value};
+use crate::rng;
 
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RustData(Rc<str>);
@@ -26,7 +26,7 @@ impl Engine for RhaiEngine {
             .register_fn("RustData_new", |s: &str| RustData(s.into()))
             .register_fn("to_string", |this: &mut RustData| this.0.to_string())
             .register_fn("<", |l: &mut RustData, r: RustData| *l < r)
-            .register_fn("rand", |n: i64| rand::rng().random_range(0..n))
+            .register_fn("rand", |n: i64| rng::rand_below(n as u32) as i64)
             .register_fn("concat", |items: Array| {
                 items
                     .into_iter()

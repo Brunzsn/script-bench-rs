@@ -10,9 +10,9 @@ use boa_engine::{
     Trace,
 };
 use boa_runtime::Console;
-use rand::RngExt;
 
 use crate::harness::{read_script, Case, Engine, Value};
+use crate::rng;
 
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Trace, Finalize, JsData)]
 pub struct RustData(Rc<str>);
@@ -81,7 +81,7 @@ impl Engine for BoaEngine {
                 1,
                 NativeFunction::from_fn_ptr(|_this, args, ctx| {
                     let n = args[0].to_u32(ctx)?;
-                    Ok(rand::rng().random_range(0..n).into())
+                    Ok(rng::rand_below(n).into())
                 }),
             )
             .map_err(|error| anyhow!("{error}"))?;

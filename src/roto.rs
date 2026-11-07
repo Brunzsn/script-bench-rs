@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result};
-use rand::RngExt;
 use roto::{library, List, RotoString, Runtime, Val};
 
 use crate::harness::{script_path, Case, Engine, Value};
+use crate::rng;
 
 #[derive(Clone, Default, PartialEq)]
 pub struct RustData(pub RotoString);
@@ -17,7 +17,7 @@ impl Engine for RotoEngine {
     fn setup(case: &Case) -> Result<Self> {
         let lib = library! {
             fn rand(n: u64) -> u64 {
-                rand::rng().random_range(0..n)
+                rng::rand_below(n as u32) as u64
             }
 
             impl RotoString {

@@ -14,5 +14,6 @@ pub mod rhai;
 pub mod roto;
 #[cfg(feature = "rquickjs")]
 pub mod rquickjs;
+pub mod rng;
 #[cfg(any(feature = "wasmi", feature = "wasmtime"))]
 pub mod wasm;

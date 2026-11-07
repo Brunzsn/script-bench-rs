@@ -5,9 +5,9 @@ use mlua::{
     Function, Lua, LuaString, MetaMethod, Table, UserData, UserDataMethods, UserDataRef,
     UserDataRegistry,
 };
-use rand::RngExt;
 
 use crate::harness::{read_script, Case, Engine, Value};
+use crate::rng;
 
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RustData(Rc<str>);
@@ -45,7 +45,7 @@ impl Engine for MluaEngine {
         globals
             .set(
                 "rand",
-                Function::wrap_raw(|n: u32| rand::rng().random_range(0..n)),
+                Function::wrap_raw(|n: u32| rng::rand_below(n)),
             )
             .map_err(|error| anyhow!("{error}"))?;
 
@@ -54,23 +54,6 @@ impl Engine for MluaEngine {
             lua.sandbox(true).map_err(|error| anyhow!("{error}"))?;
             lua.set_jit_options(mlua::state::JitOptions::new().inliner(true));
             lua.set_compiler(mlua::chunk::Compiler::new().set_optimization_level(2));
-        }
-
-        #[cfg(feature = "mlua_lua55")]
-        {
-            let table = lua
-                .globals()
-                .get::<mlua::Table>("table")
-                .map_err(|error| anyhow!("{error}"))?;
-            table
-                .set(
-                    "create",
-                    lua.create_function(|lua, narr: usize| {
-                        lua.create_table_with_capacity(narr, 0)
-                    })
-                    .map_err(|error| anyhow!("{error}"))?,
-                )
-                .map_err(|error| anyhow!("{error}"))?;
         }
 
         let script = read_script(case.scripts.lua)?;

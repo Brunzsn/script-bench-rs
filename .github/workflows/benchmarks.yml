@@ -67,3 +67,4 @@ jobs:
           path: |
             bench/*.png
             bench/target/benchmark-results.json
+            bench/target/benchmark-relative.json

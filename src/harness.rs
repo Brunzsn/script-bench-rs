@@ -34,6 +34,9 @@ pub struct Case {
     pub name: &'static str,
     /// Script paths for each engine.
     pub scripts: Scripts,
+    /// Native Rust reference implementation, used for the baseline and the
+    /// expected checksum. This is the timed path of the `native` bench target.
+    pub native: fn(),
     /// Checks the canonical value returned by the script entry point.
     pub validate: fn(&Value) -> Result<()>,
 }
@@ -66,11 +69,13 @@ pub fn run_cases<E: Engine>(
     for case in crate::cases::CASES {
         let mut engine =
             E::setup(case).with_context(|| format!("setting up case `{}`", case.name))?;
+        crate::rng::reset();
         engine
             .validate(case)
             .with_context(|| format!("validating case `{}`", case.name))?;
 
         bench(case.name, &mut || {
+            crate::rng::reset();
             engine
                 .run()
                 .unwrap_or_else(|error| panic!("case `{}` failed: {error:#}", case.name));

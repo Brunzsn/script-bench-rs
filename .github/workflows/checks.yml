@@ -73,3 +73,29 @@ jobs:
           CARGO_PROFILE_BENCH_LTO: "false"
           CARGO_PROFILE_BENCH_CODEGEN_UNITS: "16"
         run: cargo bench --bench ${{ matrix.engine }} --features ${{ matrix.engine }} -- --test
+
+  native:
+    name: native baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout benchmark fork
+        uses: actions/checkout@v4
+        with:
+          path: bench
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: bench
+          key: native
+
+      - name: Run native baseline once
+        working-directory: bench
+        env:
+          CARGO_PROFILE_BENCH_LTO: "false"
+          CARGO_PROFILE_BENCH_CODEGEN_UNITS: "16"
+        run: cargo bench --bench native -- --test
