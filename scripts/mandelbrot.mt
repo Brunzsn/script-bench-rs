@@ -1,7 +1,7 @@
 on run() -> float {
     let size = 400
     let size_float = float(size)
-    let max_iterations = 50.0
+    let max_iterations = 50
     var checksum = 0.0
     var y = 0
 
@@ -12,14 +12,17 @@ on run() -> float {
             let cr = 2.0 * float(x) / size_float - 1.5
             var zr = 0.0
             var zi = 0.0
-            var iteration = 0.0
-            while iteration < max_iterations and zr * zr + zi * zi <= 4.0 {
+            var iteration = 0
+            while iteration < max_iterations {
+                if zr * zr + zi * zi > 4.0 {
+                    break
+                }
                 let next_zr = zr * zr - zi * zi + cr
                 zi = 2.0 * zr * zi + ci
                 zr = next_zr
-                iteration += 1.0
+                iteration += 1
             }
-            checksum += iteration
+            checksum += float(iteration)
             x += 1
         }
         y += 1

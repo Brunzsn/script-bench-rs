@@ -12,7 +12,7 @@ export bench = ||
             joined = joined + ','
         joined = joined + parts[index]
 
-    split_parts = joined.split ','
+    split_parts = joined.split(',').to_list()
     pipe_joined = ''
     for index in 0..split_parts.count()
         if index > 0
