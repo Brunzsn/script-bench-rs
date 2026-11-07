@@ -3,7 +3,7 @@ use std::rc::Rc;
 use anyhow::{anyhow, bail, Result};
 use koto::{derive::*, prelude::*, runtime};
 
-use crate::harness::{read_script, Case, Engine, Value};
+use crate::harness::{number_value, read_script, Case, Engine, ResultKind, Value};
 use crate::rng;
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, KotoCopy, KotoType)]
@@ -36,10 +36,14 @@ impl KotoObject for RustData {
 pub struct KotoEngine {
     engine: Koto,
     bench: KValue,
+    result: ResultKind,
 }
 
 impl Engine for KotoEngine {
-    fn setup(case: &Case) -> Result<Self> {
+    fn setup(case: &Case) -> Result<Option<Self>> {
+        let Some(script_path) = case.scripts.koto else {
+            return Ok(None);
+        };
         let mut engine = Koto::default();
         let prelude = engine.prelude();
 
@@ -57,7 +61,7 @@ impl Engine for KotoEngine {
             unexpected => unexpected_args("a number", unexpected),
         });
 
-        let script = read_script(case.scripts.koto)?;
+        let script = read_script(script_path)?;
         engine
             .compile_and_run(script.as_str())
             .map_err(|error| anyhow!("{error}"))?;
@@ -67,7 +71,11 @@ impl Engine for KotoEngine {
             .get("bench")
             .ok_or_else(|| anyhow!("missing `bench` function"))?;
 
-        Ok(Self { engine, bench })
+        Ok(Some(Self {
+            engine,
+            bench,
+            result: case.result,
+        }))
     }
 
     fn run(&mut self) -> Result<()> {
@@ -83,21 +91,31 @@ impl Engine for KotoEngine {
             .call_function(self.bench.clone(), &[])
             .map_err(|error| anyhow!("{error}"))?;
 
-        let KValue::List(list) = value else {
-            bail!("expected the script to return a list");
-        };
+        match self.result {
+            ResultKind::UserDataList => {
+                let KValue::List(list) = value else {
+                    bail!("expected the script to return a list");
+                };
 
-        let mut items = Vec::new();
-        for item in list.data().iter() {
-            let KValue::Object(object) = item else {
-                bail!("expected a RustData object");
-            };
-            let data = object
-                .cast::<RustData>()
-                .map_err(|error| anyhow!("{error}"))?;
-            items.push(Value::Object(data.0.to_string()));
+                let mut items = Vec::new();
+                for item in list.data().iter() {
+                    let KValue::Object(object) = item else {
+                        bail!("expected a RustData object");
+                    };
+                    let data = object
+                        .cast::<RustData>()
+                        .map_err(|error| anyhow!("{error}"))?;
+                    items.push(Value::Object(data.0.to_string()));
+                }
+
+                Ok(Value::List(items))
+            }
+            ResultKind::Int | ResultKind::Float => {
+                let KValue::Number(number) = value else {
+                    bail!("expected the script to return a number");
+                };
+                number_value(self.result, f64::from(number))
+            }
         }
-
-        Ok(Value::List(items))
     }
 }

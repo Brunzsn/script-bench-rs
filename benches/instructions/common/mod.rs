@@ -4,7 +4,9 @@ use script_bench::harness::Engine;
 /// Sets up and validates an engine outside the measured instruction path.
 pub fn setup<E: Engine>() -> E {
     let case = &CASES[0];
-    let mut engine = E::setup(case).expect("engine setup failed");
+    let mut engine = E::setup(case)
+        .expect("engine setup failed")
+        .expect("first case must be supported by every engine");
     script_bench::rng::reset();
     engine.validate(case).expect("engine validation failed");
     engine

@@ -1,0 +1,34 @@
+const COUNT: u64 = 100000;
+const MODULUS: u64 = 1000000007;
+
+fn get_or_zero(values: List[u64], index: u64) -> u64 {
+    match values.get(index) {
+        Some(value) => value,
+        None => 0,
+    }
+}
+
+fn bench() -> u64 {
+    let values: List[u64] = [];
+    let index: u64 = 0;
+    while index < COUNT {
+        values.push(index);
+        index = index + 1;
+    }
+
+    let indexed_sum: u64 = 0;
+    index = 0;
+    while index < COUNT {
+        indexed_sum = indexed_sum + get_or_zero(values, index);
+        index = index + 1;
+    }
+
+    let iterated_sum: u64 = 0;
+    index = 0;
+    while index < COUNT {
+        iterated_sum = iterated_sum + get_or_zero(values, index);
+        index = index + 1;
+    }
+
+    (indexed_sum + iterated_sum) % MODULUS
+}

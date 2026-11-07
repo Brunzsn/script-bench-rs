@@ -1,0 +1,98 @@
+export bench = ||
+    body_count = 5
+    step_count = 100_000
+    pi = 3.141592653589793
+    days_per_year = 365.24
+    solar_mass = 4.0 * pi * pi
+    dt = 0.01
+
+    bodies = [
+        { x: 0.0, y: 0.0, z: 0.0, vx: 0.0, vy: 0.0, vz: 0.0, mass: solar_mass },
+        {
+            x: 4.84143144246472090e+00,
+            y: -1.16032004402742839e+00,
+            z: -1.03622044471123109e-01,
+            vx: 1.66007664274403694e-03 * days_per_year,
+            vy: 7.69901118419740425e-03 * days_per_year,
+            vz: -6.90460016972063023e-05 * days_per_year,
+            mass: 9.54791938424326609e-04 * solar_mass,
+        },
+        {
+            x: 8.34336671824457987e+00,
+            y: 4.12479856412430479e+00,
+            z: -4.03523417114321381e-01,
+            vx: -2.76742510726862411e-03 * days_per_year,
+            vy: 4.99852801234917238e-03 * days_per_year,
+            vz: 2.30417297573763929e-05 * days_per_year,
+            mass: 2.85885980666130812e-04 * solar_mass,
+        },
+        {
+            x: 1.28943695621391310e+01,
+            y: -1.51111514016986312e+01,
+            z: -2.23307578892655734e-01,
+            vx: 2.96460137564761618e-03 * days_per_year,
+            vy: 2.37847173959480950e-03 * days_per_year,
+            vz: -2.96589568540237556e-05 * days_per_year,
+            mass: 4.36624404335156298e-05 * solar_mass,
+        },
+        {
+            x: 1.53796971148509165e+01,
+            y: -2.59193146099879641e+01,
+            z: 1.79258772950371181e-01,
+            vx: 2.68067772490389322e-03 * days_per_year,
+            vy: 1.62824170038242295e-03 * days_per_year,
+            vz: -9.51592254519715870e-05 * days_per_year,
+            mass: 5.15138902046611451e-05 * solar_mass,
+        },
+    ]
+
+    for _ in 0..step_count
+        i = 0
+        while i < body_count
+            j = i + 1
+            while j < body_count
+                body_i = bodies[i]
+                body_j = bodies[j]
+                dx = body_i.x - body_j.x
+                dy = body_i.y - body_j.y
+                dz = body_i.z - body_j.z
+                distance_squared = dx * dx + dy * dy + dz * dz
+                magnitude = dt / (distance_squared * distance_squared.sqrt())
+                mass_i = body_i.mass
+                mass_j = body_j.mass
+
+                body_i.vx -= dx * mass_j * magnitude
+                body_i.vy -= dy * mass_j * magnitude
+                body_i.vz -= dz * mass_j * magnitude
+                body_j.vx += dx * mass_i * magnitude
+                body_j.vy += dy * mass_i * magnitude
+                body_j.vz += dz * mass_i * magnitude
+                j += 1
+            i += 1
+
+        index = 0
+        while index < body_count
+            body = bodies[index]
+            body.x += dt * body.vx
+            body.y += dt * body.vy
+            body.z += dt * body.vz
+            index += 1
+
+    energy = 0.0
+    for body in bodies
+        energy += 0.5 * body.mass * (body.vx * body.vx + body.vy * body.vy + body.vz * body.vz)
+
+    i = 0
+    while i < body_count
+        j = i + 1
+        while j < body_count
+            body_i = bodies[i]
+            body_j = bodies[j]
+            dx = body_i.x - body_j.x
+            dy = body_i.y - body_j.y
+            dz = body_i.z - body_j.z
+            energy -= body_i.mass * body_j.mass / ((dx * dx + dy * dy + dz * dz).sqrt())
+            j += 1
+        i += 1
+
+    energy

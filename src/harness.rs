@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context as _, Result};
+use anyhow::{bail, Context as _, Result};
 
 /// Engine-neutral representation of a script result, used for validation.
 #[allow(dead_code)]
@@ -15,17 +15,41 @@ pub enum Value {
     Object(String),
 }
 
+/// How a case's entry point encodes its result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResultKind {
+    /// A list of `RustData` userdata objects, as returned by the sort case.
+    UserDataList,
+    /// An integer checksum or count.
+    Int,
+    /// A floating-point checksum.
+    Float,
+}
+
 /// Paths to the scripts implementing a case, one per engine.
+///
+/// Engines that cannot express a case without host calls leave the relevant
+/// field as `None`; the case is then skipped for that engine.
 pub struct Scripts {
-    pub js: &'static str,
-    pub koto: &'static str,
-    pub lua: &'static str,
-    pub martite_script: &'static str,
-    pub martite_interface: &'static str,
-    pub rhai: &'static str,
-    pub roto: &'static str,
-    pub wasm_source: &'static str,
-    pub wasm_module: &'static str,
+    pub js: Option<&'static str>,
+    pub koto: Option<&'static str>,
+    pub lua: Option<&'static str>,
+    pub martite_script: Option<&'static str>,
+    pub martite_interface: Option<&'static str>,
+    pub rhai: Option<&'static str>,
+    pub roto: Option<&'static str>,
+    pub wasm_source: Option<&'static str>,
+    pub wasm_module: Option<&'static str>,
+}
+
+impl Scripts {
+    /// Returns the wasm source and module path when the case has a wasm build.
+    pub fn wasm(&self) -> Option<(&'static str, &'static str)> {
+        match (self.wasm_source, self.wasm_module) {
+            (Some(source), Some(module)) => Some((source, module)),
+            _ => None,
+        }
+    }
 }
 
 /// A benchmark case shared by every engine.
@@ -34,6 +58,8 @@ pub struct Case {
     pub name: &'static str,
     /// Script paths for each engine.
     pub scripts: Scripts,
+    /// Encoding of the result returned by the script entry point.
+    pub result: ResultKind,
     /// Native Rust reference implementation, used for the baseline and the
     /// expected checksum. This is the timed path of the `native` bench target.
     pub native: fn(),
@@ -44,7 +70,9 @@ pub struct Case {
 /// An engine adapter that can run benchmark cases.
 pub trait Engine: Sized {
     /// Initialise the engine and load `case`'s script, without running it.
-    fn setup(case: &Case) -> Result<Self>;
+    ///
+    /// Returns `None` when the engine has no script for the case.
+    fn setup(case: &Case) -> Result<Option<Self>>;
 
     /// Execute the case entry point once. This is the timed path.
     fn run(&mut self) -> Result<()>;
@@ -67,8 +95,11 @@ pub fn run_cases<E: Engine>(
     mut bench: impl FnMut(&'static str, &mut dyn FnMut()),
 ) -> Result<()> {
     for case in crate::cases::CASES {
-        let mut engine =
-            E::setup(case).with_context(|| format!("setting up case `{}`", case.name))?;
+        let Some(mut engine) =
+            E::setup(case).with_context(|| format!("setting up case `{}`", case.name))?
+        else {
+            continue;
+        };
         crate::rng::reset();
         engine
             .validate(case)
@@ -82,6 +113,48 @@ pub fn run_cases<E: Engine>(
         });
     }
 
+    Ok(())
+}
+
+/// Converts a numeric script result into the case's declared result kind.
+pub fn number_value(kind: ResultKind, number: f64) -> Result<Value> {
+    match kind {
+        ResultKind::UserDataList => Ok(Value::Float(number)),
+        ResultKind::Int => {
+            if !number.is_finite() || number.fract() != 0.0 {
+                bail!("expected an integer result, got {number}");
+            }
+            Ok(Value::Int(number as i64))
+        }
+        ResultKind::Float => Ok(Value::Float(number)),
+    }
+}
+
+/// Extracts an integer from a validated value.
+pub fn expect_int(value: &Value) -> Result<i64> {
+    match value {
+        Value::Int(number) => Ok(*number),
+        Value::Float(number) if number.is_finite() && number.fract() == 0.0 => Ok(*number as i64),
+        other => bail!("expected an integer result, got {other:?}"),
+    }
+}
+
+/// Extracts a float from a validated value.
+pub fn expect_float(value: &Value) -> Result<f64> {
+    match value {
+        Value::Float(number) => Ok(*number),
+        Value::Int(number) => Ok(*number as f64),
+        other => bail!("expected a floating-point result, got {other:?}"),
+    }
+}
+
+/// Checks that `actual` is within a relative tolerance of `expected`.
+pub fn ensure_close(actual: f64, expected: f64, tolerance: f64) -> Result<()> {
+    let limit = tolerance * expected.abs().max(1.0);
+    let difference = (actual - expected).abs();
+    if difference > limit {
+        bail!("result mismatch: got {actual}, expected {expected} (difference {difference}, limit {limit})");
+    }
     Ok(())
 }
 

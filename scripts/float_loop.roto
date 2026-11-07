@@ -1,0 +1,9 @@
+fn bench() -> f64 {
+    let value: f64 = 1.0;
+    let index: i64 = 0;
+    while index < 5000000 {
+        value = value * 0.999999 + 0.000001;
+        index = index + 1;
+    }
+    value
+}

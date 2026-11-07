@@ -1,0 +1,29 @@
+export bench = ||
+    count = 5000
+    unicode_text = 'héllo—世界🚀'
+
+    parts = []
+    for index in 0..count
+        parts.push 'item-{index}'
+
+    joined = ''
+    for index in 0..count
+        if index > 0
+            joined += ','
+        joined += parts[index]
+
+    split_parts = joined.split ','
+    pipe_joined = ''
+    for index in 0..split_parts.count()
+        if index > 0
+            pipe_joined += '|'
+        pipe_joined += split_parts[index]
+
+    replaced = pipe_joined.replace 'item-', 'row-'
+    marked = replaced.replace 'row-4999', 'last'
+    unicode_length = unicode_text.chars().count()
+
+    checksum = (size joined) + (size pipe_joined) + (size marked) + (split_parts.count()) + unicode_length
+    if marked.contains 'last'
+        checksum += 1
+    checksum

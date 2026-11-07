@@ -8,7 +8,7 @@ use rquickjs::{
     Result as JsResult, Runtime, Value as JsValue,
 };
 
-use crate::harness::{read_script, Case, Engine, Value};
+use crate::harness::{number_value, read_script, Case, Engine, ResultKind, Value};
 use crate::rng;
 
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -66,11 +66,15 @@ pub struct QuickJsEngine {
     bench: Persistent<Function<'static>>,
     context: Context,
     _runtime: Runtime,
+    result: ResultKind,
 }
 
 impl Engine for QuickJsEngine {
-    fn setup(case: &Case) -> Result<Self> {
-        let script = read_script(case.scripts.js)?;
+    fn setup(case: &Case) -> Result<Option<Self>> {
+        let Some(script_path) = case.scripts.js else {
+            return Ok(None);
+        };
+        let script = read_script(script_path)?;
 
         let runtime = Runtime::new().map_err(|error| anyhow!("{error}"))?;
         let context = Context::full(&runtime).map_err(|error| anyhow!("{error}"))?;
@@ -92,11 +96,12 @@ impl Engine for QuickJsEngine {
             })
             .map_err(|error| anyhow!("{error}"))?;
 
-        Ok(Self {
+        Ok(Some(Self {
             bench,
             context,
             _runtime: runtime,
-        })
+            result: case.result,
+        }))
     }
 
     fn run(&mut self) -> Result<()> {
@@ -104,7 +109,7 @@ impl Engine for QuickJsEngine {
         self.context
             .with(|ctx| {
                 let func = bench.restore(&ctx)?;
-                func.call::<_, ()>(())
+                func.call::<_, JsValue>(())
             })
             .map_err(|error| anyhow!("{error}"))?;
         Ok(())
@@ -112,19 +117,32 @@ impl Engine for QuickJsEngine {
 
     fn run_checked(&mut self) -> Result<Value> {
         let bench = self.bench.clone();
-        self.context
-            .with(|ctx| -> JsResult<Value> {
-                let func = bench.restore(&ctx)?;
-                let array = func.call::<_, Array>(())?;
+        match self.result {
+            ResultKind::UserDataList => self
+                .context
+                .with(|ctx| -> JsResult<Value> {
+                    let func = bench.restore(&ctx)?;
+                    let array = func.call::<_, Array>(())?;
 
-                let mut items = Vec::new();
-                for next in array.iter::<RustData>() {
-                    let next = next?;
-                    items.push(Value::Object(next.0.to_string()));
-                }
+                    let mut items = Vec::new();
+                    for next in array.iter::<RustData>() {
+                        let next = next?;
+                        items.push(Value::Object(next.0.to_string()));
+                    }
 
-                Ok(Value::List(items))
-            })
-            .map_err(|error| anyhow!("{error}"))
+                    Ok(Value::List(items))
+                })
+                .map_err(|error| anyhow!("{error}")),
+            ResultKind::Int | ResultKind::Float => {
+                let number = self
+                    .context
+                    .with(|ctx| {
+                        let func = bench.restore(&ctx)?;
+                        func.call::<_, f64>(())
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
+                number_value(self.result, number)
+            }
+        }
     }
 }

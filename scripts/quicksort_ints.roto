@@ -1,0 +1,59 @@
+const ITEM_COUNT: u64 = 10000;
+const MODULUS: u64 = 1000000007;
+const LCG_MODULUS: u64 = 2147483647;
+const LCG_MULTIPLIER: u64 = 48271;
+
+fn get_or_zero(values: List[u64], index: u64) -> u64 {
+    match values.get(index) {
+        Some(value) => value,
+        None => 0,
+    }
+}
+
+fn partition(values: List[u64], lo: u64, hi: u64) -> u64 {
+    let pivot_index = (lo + hi) / 2;
+    let pivot = get_or_zero(values, pivot_index);
+    values.swap(pivot_index, hi);
+    let split = lo;
+    let index = lo;
+    while index < hi {
+        if get_or_zero(values, index) < pivot {
+            values.swap(index, split);
+            split = split + 1;
+        }
+        index = index + 1;
+    }
+    values.swap(split, hi);
+    split
+}
+
+fn quicksort(values: List[u64], lo: u64, hi: u64) {
+    while lo < hi {
+        let pivot = partition(values, lo, hi);
+        if pivot > lo {
+            quicksort(values, lo, pivot - 1);
+        }
+        lo = pivot + 1;
+    }
+}
+
+fn bench() -> u64 {
+    let values: List[u64] = [];
+    let seed: u64 = 12345;
+    let index: u64 = 0;
+    while index < ITEM_COUNT {
+        seed = (seed * LCG_MULTIPLIER) % LCG_MODULUS;
+        values.push(seed);
+        index = index + 1;
+    }
+
+    quicksort(values, 0, values.len() - 1);
+
+    let checksum: u64 = 0;
+    let checksum_index: u64 = 0;
+    while checksum_index < values.len() {
+        checksum = (checksum + get_or_zero(values, checksum_index) * (checksum_index + 1)) % MODULUS;
+        checksum_index = checksum_index + 1;
+    }
+    checksum
+}

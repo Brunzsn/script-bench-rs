@@ -6,7 +6,7 @@ use mlua::{
     UserDataRegistry,
 };
 
-use crate::harness::{read_script, Case, Engine, Value};
+use crate::harness::{number_value, read_script, Case, Engine, ResultKind, Value};
 use crate::rng;
 
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -29,10 +29,14 @@ pub struct MluaEngine {
     // The function handle must be dropped before the Lua state.
     bench: Function,
     _lua: Lua,
+    result: ResultKind,
 }
 
 impl Engine for MluaEngine {
-    fn setup(case: &Case) -> Result<Self> {
+    fn setup(case: &Case) -> Result<Option<Self>> {
+        let Some(script_path) = case.scripts.lua else {
+            return Ok(None);
+        };
         let lua = Lua::new();
 
         let globals = lua.globals();
@@ -56,7 +60,7 @@ impl Engine for MluaEngine {
             lua.set_compiler(mlua::chunk::Compiler::new().set_optimization_level(2));
         }
 
-        let script = read_script(case.scripts.lua)?;
+        let script = read_script(script_path)?;
         lua.load(script.as_str())
             .exec()
             .map_err(|error| anyhow!("{error}"))?;
@@ -66,30 +70,45 @@ impl Engine for MluaEngine {
             .get::<Function>("bench")
             .map_err(|error| anyhow!("{error}"))?;
 
-        Ok(Self { bench, _lua: lua })
+        Ok(Some(Self {
+            bench,
+            _lua: lua,
+            result: case.result,
+        }))
     }
 
     fn run(&mut self) -> Result<()> {
         self.bench
-            .call::<()>(())
+            .call::<mlua::Value>(())
             .map_err(|error| anyhow!("{error}"))?;
         Ok(())
     }
 
     fn run_checked(&mut self) -> Result<Value> {
-        let table: Table = self
-            .bench
-            .call(())
-            .map_err(|error| anyhow!("{error}"))?;
+        match self.result {
+            ResultKind::UserDataList => {
+                let table: Table = self
+                    .bench
+                    .call(())
+                    .map_err(|error| anyhow!("{error}"))?;
 
-        let mut items = Vec::new();
-        table
-            .for_each_value(|next: UserDataRef<RustData>| {
-                items.push(Value::Object(next.0.to_string()));
-                Ok(())
-            })
-            .map_err(|error| anyhow!("{error}"))?;
+                let mut items = Vec::new();
+                table
+                    .for_each_value(|next: UserDataRef<RustData>| {
+                        items.push(Value::Object(next.0.to_string()));
+                        Ok(())
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
 
-        Ok(Value::List(items))
+                Ok(Value::List(items))
+            }
+            ResultKind::Int | ResultKind::Float => {
+                let number: f64 = self
+                    .bench
+                    .call(())
+                    .map_err(|error| anyhow!("{error}"))?;
+                number_value(self.result, number)
+            }
+        }
     }
 }

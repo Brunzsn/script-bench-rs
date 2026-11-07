@@ -1,0 +1,17 @@
+export bench = ||
+    count = 10_000
+    passes = 50
+    modulus = 1_000_000_007
+
+    values = []
+    for index in 0..count
+        values.push index
+
+    checksum = 0
+    for _ in 0..passes
+        mapped = values.each |value| value * 2
+        filtered = mapped.keep |value| value % 3 == 0
+        sum = filtered.fold 0, |accumulator, value| accumulator + value
+        checksum = (checksum + sum) % modulus
+
+    checksum

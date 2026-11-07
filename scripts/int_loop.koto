@@ -1,0 +1,6 @@
+export bench = ||
+    modulus = 1_000_000_007
+    value = 12_345
+    for index in 0..10_000_000
+        value = (value * 31 + index) % modulus
+    value

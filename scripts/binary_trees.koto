@@ -1,0 +1,20 @@
+depth = 14
+iterations = 20
+
+build = |level|
+    if level == 0
+        null
+    else
+        { left: build (level - 1), right: build (level - 1) }
+
+count = |node|
+    if node == null
+        1
+    else
+        1 + (count node.left) + (count node.right)
+
+export bench = ||
+    total = 0
+    for _ in 0..iterations
+        total += count build depth
+    total

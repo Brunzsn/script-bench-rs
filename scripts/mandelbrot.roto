@@ -1,0 +1,28 @@
+fn bench() -> f64 {
+    let size: f64 = 400.0;
+    let max_iterations: f64 = 50.0;
+    let checksum: f64 = 0.0;
+    let y: f64 = 0.0;
+
+    while y < size {
+        let ci = 2.0 * y / size - 1.0;
+        let x: f64 = 0.0;
+        while x < size {
+            let cr = 2.0 * x / size - 1.5;
+            let zr: f64 = 0.0;
+            let zi: f64 = 0.0;
+            let iteration: f64 = 0.0;
+            while iteration < max_iterations && zr * zr + zi * zi <= 4.0 {
+                let next_zr = zr * zr - zi * zi + cr;
+                zi = 2.0 * zr * zi + ci;
+                zr = next_zr;
+                iteration = iteration + 1.0;
+            }
+            checksum = checksum + iteration;
+            x = x + 1.0;
+        }
+        y = y + 1.0;
+    }
+
+    checksum
+}

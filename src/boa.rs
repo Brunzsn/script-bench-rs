@@ -11,7 +11,7 @@ use boa_engine::{
 };
 use boa_runtime::Console;
 
-use crate::harness::{read_script, Case, Engine, Value};
+use crate::harness::{number_value, read_script, Case, Engine, ResultKind, Value};
 use crate::rng;
 
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Trace, Finalize, JsData)]
@@ -61,10 +61,14 @@ impl Class for RustData {
 pub struct BoaEngine {
     context: Context,
     bench: JsValue,
+    result: ResultKind,
 }
 
 impl Engine for BoaEngine {
-    fn setup(case: &Case) -> Result<Self> {
+    fn setup(case: &Case) -> Result<Option<Self>> {
+        let Some(script_path) = case.scripts.js else {
+            return Ok(None);
+        };
         let mut context = Context::default();
 
         let console = Console::init(&mut context);
@@ -86,7 +90,7 @@ impl Engine for BoaEngine {
             )
             .map_err(|error| anyhow!("{error}"))?;
 
-        let script = read_script(case.scripts.js)?;
+        let script = read_script(script_path)?;
         let source = Source::from_bytes(&script);
         context.eval(source).map_err(|error| anyhow!("{error}"))?;
 
@@ -95,7 +99,11 @@ impl Engine for BoaEngine {
             .get(js_string!("bench"), &mut context)
             .map_err(|error| anyhow!("{error}"))?;
 
-        Ok(Self { context, bench })
+        Ok(Some(Self {
+            context,
+            bench,
+            result: case.result,
+        }))
     }
 
     fn run(&mut self) -> Result<()> {
@@ -118,26 +126,36 @@ impl Engine for BoaEngine {
                 .map_err(|error| anyhow!("{error}"))?
         };
 
-        let array: JsArray = TryFromJs::try_from_js(&value, &mut self.context)
-            .map_err(|error| anyhow!("expected the script to return an array: {error}"))?;
-        let length = array
-            .length(&mut self.context)
-            .map_err(|error| anyhow!("{error}"))?;
+        match self.result {
+            ResultKind::UserDataList => {
+                let array: JsArray = TryFromJs::try_from_js(&value, &mut self.context)
+                    .map_err(|error| anyhow!("expected the script to return an array: {error}"))?;
+                let length = array
+                    .length(&mut self.context)
+                    .map_err(|error| anyhow!("{error}"))?;
 
-        let mut items = Vec::with_capacity(length as usize);
-        for index in 0..length {
-            let item = array
-                .get(index, &mut self.context)
-                .map_err(|error| anyhow!("{error}"))?;
-            let object = item
-                .as_object()
-                .ok_or_else(|| anyhow!("expected a RustData object"))?;
-            let data = object
-                .downcast_ref::<RustData>()
-                .ok_or_else(|| anyhow!("expected a RustData object"))?;
-            items.push(Value::Object(data.0.to_string()));
+                let mut items = Vec::with_capacity(length as usize);
+                for index in 0..length {
+                    let item = array
+                        .get(index, &mut self.context)
+                        .map_err(|error| anyhow!("{error}"))?;
+                    let object = item
+                        .as_object()
+                        .ok_or_else(|| anyhow!("expected a RustData object"))?;
+                    let data = object
+                        .downcast_ref::<RustData>()
+                        .ok_or_else(|| anyhow!("expected a RustData object"))?;
+                    items.push(Value::Object(data.0.to_string()));
+                }
+
+                Ok(Value::List(items))
+            }
+            ResultKind::Int | ResultKind::Float => {
+                let number = value
+                    .to_number(&mut self.context)
+                    .map_err(|error| anyhow!("{error}"))?;
+                number_value(self.result, number)
+            }
         }
-
-        Ok(Value::List(items))
     }
 }

@@ -12,10 +12,9 @@ fn main() {
         }
         Some("wasm") => {
             for case in script_bench::cases::CASES {
-                println!(
-                    "{}\t{}",
-                    case.scripts.wasm_source, case.scripts.wasm_module
-                );
+                if let Some((source, module)) = case.scripts.wasm() {
+                    println!("{source}\t{module}");
+                }
             }
         }
         Some(other) => {

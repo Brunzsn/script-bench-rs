@@ -1,0 +1,37 @@
+item_count = 10_000
+modulus = 1_000_000_007
+lcg_modulus = 2_147_483_647
+lcg_multiplier = 48_271
+
+partition = |values, lo, hi|
+    pivot_index = ((lo + hi) / 2).floor()
+    values[pivot_index], values[hi] = values[hi], values[pivot_index]
+    pivot = values[hi]
+    split = lo
+    for index in lo..hi
+        if values[index] < pivot
+            values[index], values[split] = values[split], values[index]
+            split += 1
+    values[split], values[hi] = values[hi], values[split]
+    split
+
+quicksort = |values, lo, hi|
+    while lo < hi
+        pivot = partition values, lo, hi
+        if pivot > lo
+            quicksort values, lo, (pivot - 1)
+        lo = pivot + 1
+
+export bench = ||
+    values = []
+    seed = 12_345
+    for _ in 0..item_count
+        seed = (seed * lcg_multiplier) % lcg_modulus
+        values.push seed
+
+    quicksort values, 0, (values.count() - 1)
+
+    checksum = 0
+    for index in 0..values.count()
+        checksum = (checksum + values[index] * (index + 1)) % modulus
+    checksum

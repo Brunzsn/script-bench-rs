@@ -1,0 +1,10 @@
+fn bench() -> u64 {
+    let modulus: u64 = 1000000007;
+    let value: u64 = 12345;
+    let index: u64 = 0;
+    while index < 10000000 {
+        value = (value * 31 + index) % modulus;
+        index = index + 1;
+    }
+    value
+}

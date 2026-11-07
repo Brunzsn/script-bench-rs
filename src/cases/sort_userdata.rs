@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use anyhow::{bail, ensure, Result};
 
-use crate::harness::{Case, Scripts, Value};
+use crate::harness::{Case, ResultKind, Scripts, Value};
 use crate::rng::DetRng;
 
 const ITEM_COUNT: usize = 10_000;
@@ -14,16 +14,17 @@ const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 pub const CASE: Case = Case {
     name: "Sort Rust objects",
     scripts: Scripts {
-        js: "scripts/sort_userdata.js",
-        koto: "scripts/sort_userdata.koto",
-        lua: "scripts/sort_userdata.lua",
-        martite_script: "scripts/sort_userdata.mt",
-        martite_interface: "scripts/sort_userdata.mti",
-        rhai: "scripts/sort_userdata.rhai",
-        roto: "scripts/sort_userdata.roto",
-        wasm_source: "scripts/sort_userdata.wasm.rs",
-        wasm_module: "scripts/sort_userdata.wasm",
+        js: Some("scripts/sort_userdata.js"),
+        koto: Some("scripts/sort_userdata.koto"),
+        lua: Some("scripts/sort_userdata.lua"),
+        martite_script: Some("scripts/sort_userdata.mt"),
+        martite_interface: Some("scripts/sort_userdata.mti"),
+        rhai: Some("scripts/sort_userdata.rhai"),
+        roto: Some("scripts/sort_userdata.roto"),
+        wasm_source: Some("scripts/sort_userdata.wasm.rs"),
+        wasm_module: Some("scripts/sort_userdata.wasm"),
     },
+    result: ResultKind::UserDataList,
     native,
     validate,
 };

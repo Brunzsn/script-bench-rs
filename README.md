@@ -26,21 +26,38 @@ The `benchmarks` workflow runs the full suite on `ubuntu-latest`. Those results 
 
 The `checks` workflow is the fast path for pull requests and pushes: it compiles every engine and runs each registered case once (criterion `--test` mode) without collecting measurements.
 
+## Benchmark cases
+
+The suite separates pure-compute cost from Rust interop:
+
+- `Sort Rust objects` — 10k generated strings wrapped in host userdata objects, sorted through a host `<` call.
+- `Fib (recursive)` — `fib(32)`, call overhead.
+- `Integer loop` and `Float loop` — tight arithmetic loops.
+- `N-body`, `Spectral norm`, `Mandelbrot` — floating-point numeric kernels.
+- `Binary trees` — allocation and GC churn at depth 14.
+- `Quicksort integers` — the userdata sort algorithm on plain integers, with no host calls.
+- `Strings` — concatenation, split/join, search/replace, formatting, and non-ASCII character counting.
+- `Array operations`, `Hash map`, `Builtin sort` — core collection operations.
+- `Closures` — map/filter/reduce over closures.
+
+Pure-compute scripts use deterministic in-script inputs and do not call host functions. Roto has no maps or first-class functions and no in-place list mutation, so it does not run the cases that need them. `wasmi` and `wasmtime` run only the precompiled-wasm `Sort Rust objects` case; compiled wasm is not an interpreter baseline.
+
 ## Adding a benchmark case
 
-A case is one entry in the registry plus one script per language:
+A case is one entry in the registry plus one script per language that can express it:
 
 1. Add the scripts under `scripts/`.
-2. Add a `Case` entry in `src/cases/` (including its native Rust reference implementation) and list it in `src/cases/mod.rs`.
-3. For WebAssembly, point `wasm_source` at a `.wasm.rs` file; `bench.py` compiles every wasm source declared by the registry.
+2. Add a `Case` entry in `src/cases/` (including its native Rust reference implementation and `ResultKind`) and list it in `src/cases/mod.rs`.
+3. Leave an engine's script path as `None` when it cannot express the case without host functions; that engine skips the case.
+4. For WebAssembly, point `wasm_source` at a `.wasm.rs` file; `bench.py` compiles every wasm source declared by the registry.
 
 Everything else (criterion targets, validation reporting, plots) is driven by the registry.
 
 ## Methodology
 
-- **Deterministic inputs.** Every script receives the same input stream from a fixed-seed SplitMix64 generator (`src/rng.rs`). The generator is reset before each validation and timed iteration, so every engine and iteration sorts identical data.
-- **Cross-engine validation.** Each engine's result is checked against the native Rust reference by item count, ordering, and an FNV-1a checksum. A mismatch fails `cargo bench -- --test` in the checks workflow.
-- **Native baseline.** The `native` criterion target runs the same workload with `Vec::sort`. Plots label every engine with its multiple of that baseline, and `target/benchmark-relative.json` contains the raw ratios.
+- **Deterministic inputs.** The interop case receives the same input stream from a fixed-seed SplitMix64 generator (`src/rng.rs`). Pure-compute cases use fixed constants and in-script deterministic generators, so no host RNG is involved. The generator is reset before each validation and timed iteration.
+- **Cross-engine validation.** Each engine's result is checked against the native Rust reference. The sort case is checked by item count, ordering, and an FNV-1a checksum; scalar cases check exact integers or floating-point results within a tolerance. A mismatch fails `cargo bench -- --test` in the checks workflow.
+- **Native baseline.** The `native` criterion target runs the same workload as every case. Plots label every engine with its multiple of that baseline, and `target/benchmark-relative.json` contains the raw ratios.
 - **Statistics.** Criterion uses 50 samples, a 3 second warm-up, and a 10 second measurement window.
 - **Lua.** No engine receives a `table` preallocation shim; all scripts use ordinary empty tables or lists.
 - **WebAssembly.** `wasmi` and `wasmtime` execute a Rust module precompiled to wasm. They are labelled as compiled-wasm entries and are not scripting-language measurements.

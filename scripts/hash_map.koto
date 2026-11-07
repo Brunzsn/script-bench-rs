@@ -1,0 +1,17 @@
+export bench = ||
+    count = 20_000
+    modulus = 1_000_000_007
+
+    table = {}
+    for index in 0..count
+        table.insert 'key{index}', index * 3
+
+    looked_up = 0
+    for index in 0..count
+        looked_up += table.'key{index}'
+
+    iterated = 0
+    for _, value in table
+        iterated += value
+
+    (looked_up + iterated + count) % modulus

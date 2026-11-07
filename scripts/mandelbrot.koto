@@ -1,0 +1,21 @@
+export bench = ||
+    size = 400
+    size_float = 400.0
+    max_iterations = 50.0
+    checksum = 0.0
+
+    for y in 0..size
+        ci = 2.0 * y / size_float - 1.0
+        for x in 0..size
+            cr = 2.0 * x / size_float - 1.5
+            zr = 0.0
+            zi = 0.0
+            iteration = 0.0
+            while iteration < max_iterations and zr * zr + zi * zi <= 4.0
+                next_zr = zr * zr - zi * zi + cr
+                zi = 2.0 * zr * zi + ci
+                zr = next_zr
+                iteration += 1.0
+            checksum += iteration
+
+    checksum

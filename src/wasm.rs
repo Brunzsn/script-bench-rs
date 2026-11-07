@@ -63,9 +63,12 @@ pub struct WasmEngine {
 }
 
 impl crate::harness::Engine for WasmEngine {
-    fn setup(case: &Case) -> Result<Self> {
+    fn setup(case: &Case) -> Result<Option<Self>> {
+        let Some((_, module_path)) = case.scripts.wasm() else {
+            return Ok(None);
+        };
         let engine = Engine::default();
-        let wasm = read_script_bytes(case.scripts.wasm_module)?;
+        let wasm = read_script_bytes(module_path)?;
         let module = Module::new(&engine, wasm.as_slice()).map_err(|error| anyhow!("{error}"))?;
 
         let mut store = Store::new(&engine, Default::default());
@@ -117,11 +120,11 @@ impl crate::harness::Engine for WasmEngine {
         let bench = instance.get_typed_func::<u32, u32>(&mut store, "bench")?;
         let get_id = instance.get_typed_func::<u32, u32>(&mut store, "get_id")?;
 
-        Ok(Self {
+        Ok(Some(Self {
             store,
             bench,
             get_id,
-        })
+        }))
     }
 
     fn run(&mut self) -> Result<()> {
