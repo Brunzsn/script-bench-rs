@@ -109,7 +109,7 @@ impl Engine for QuickJsEngine {
         self.context
             .with(|ctx| {
                 let func = bench.restore(&ctx)?;
-                func.call::<_, JsValue>(())
+                func.call::<_, ()>(())
             })
             .map_err(|error| anyhow!("{error}"))?;
         Ok(())

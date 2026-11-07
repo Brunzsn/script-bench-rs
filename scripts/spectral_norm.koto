@@ -17,7 +17,7 @@ export bench = ||
         for i in 0..n
             sum = 0.0
             for j in 0..n
-                sum += (eval_a i, j) * u[j]
+                sum += eval_a(i, j) * u[j]
             v[i] = sum
 
         for i in 0..n
@@ -25,12 +25,12 @@ export bench = ||
         for i in 0..n
             value = v[i]
             for j in 0..n
-                u[j] += (eval_a i, j) * value
+                u[j] += eval_a(i, j) * value
 
     for i in 0..n
         sum = 0.0
         for j in 0..n
-            sum += (eval_a i, j) * u[j]
+            sum += eval_a(i, j) * u[j]
         v[i] = sum
 
     v_bv = 0.0

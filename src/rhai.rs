@@ -75,9 +75,9 @@ impl Engine for RhaiEngine {
                 Ok(Value::List(items))
             }
             ResultKind::Int | ResultKind::Float => {
-                if let Some(number) = value.as_int() {
+                if let Ok(number) = value.as_int() {
                     number_value(self.result, number as f64)
-                } else if let Some(number) = value.as_float() {
+                } else if let Ok(number) = value.as_float() {
                     number_value(self.result, number)
                 } else {
                     bail!("expected the script to return a number, got {}", value.type_name())

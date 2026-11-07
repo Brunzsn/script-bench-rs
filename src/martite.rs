@@ -85,7 +85,20 @@ impl Engine for MartiteEngine {
         let script = read_script(script_path)?;
         let provider = martite::memory_provider(&[("main.mt", script.as_str())]);
         let plugin = engine.load(MANIFEST, &provider).map_err(|diagnostics| {
-            anyhow!("Martite load failed: {} diagnostics", diagnostics.len())
+            let details = diagnostics
+                .iter()
+                .map(|diagnostic| {
+                    format!(
+                        "{:?}: {} at {:?}",
+                        diagnostic.code, diagnostic.message, diagnostic.span
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            anyhow!(
+                "Martite load failed: {} diagnostics\n{details}",
+                diagnostics.len()
+            )
         })?;
 
         // `Instance` borrows its `Plugin`, and re-instantiating per iteration
