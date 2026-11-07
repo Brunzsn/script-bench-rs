@@ -84,6 +84,13 @@ jobs:
         with:
           path: bench
 
+      - name: Checkout Martite
+        uses: actions/checkout@v4
+        with:
+          repository: Brunzsn/Martite
+          path: martite
+          ref: dev
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 

@@ -59,7 +59,12 @@ pub fn reset() {
 
 /// Returns a deterministic value in `0..n` from the thread-local generator.
 pub fn rand_below(n: u32) -> u32 {
-    RNG.with(|rng| rng.get().below(n))
+    RNG.with(|rng| {
+        let mut state = rng.get();
+        let value = state.below(n);
+        rng.set(state);
+        value
+    })
 }
 
 #[cfg(test)]
