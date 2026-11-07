@@ -1,3 +1,6 @@
+// allow(L001)
+use bench.data
+
 on run() -> int {
     let count = 10000
     let passes = 50

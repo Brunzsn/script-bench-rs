@@ -1,3 +1,7 @@
+// allow(L001)
+use bench.data
+
+// allow(L017) -- the pixel loops stay inline to measure the arithmetic directly.
 on run() -> float {
     let size = 400
     let size_float = float(size)
@@ -14,9 +18,7 @@ on run() -> float {
             var zi = 0.0
             var iteration = 0
             while iteration < max_iterations {
-                if zr * zr + zi * zi > 4.0 {
-                    break
-                }
+                if zr * zr + zi * zi > 4.0 { break }
                 let next_zr = zr * zr - zi * zi + cr
                 zi = 2.0 * zr * zi + ci
                 zr = next_zr

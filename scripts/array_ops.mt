@@ -1,3 +1,6 @@
+// allow(L001)
+use bench.data
+
 on run() -> int {
     let count = 100000
     let modulus = 1000000007

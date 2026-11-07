@@ -1,9 +1,13 @@
+// allow(L001)
+use bench.data
+
 fn eval_a(i: int, j: int) -> float {
     let i_float = float(i)
     let j_float = float(j)
     1.0 / ((i_float + j_float) * (i_float + j_float + 1.0) / 2.0 + i_float + 1.0)
 }
 
+// allow(L017) -- the matrix loops stay inline to measure the arithmetic directly.
 on run() -> float {
     let n = 300
     let iterations = 10

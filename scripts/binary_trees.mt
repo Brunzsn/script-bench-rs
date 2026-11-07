@@ -1,3 +1,7 @@
+// allow(L001)
+use bench.data
+
+// allow(L017) -- the allocation loop stays inline so nodes are pushed directly.
 on run() -> int {
     let depth = 14
     let iterations = 20

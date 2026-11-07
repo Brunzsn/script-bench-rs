@@ -1,13 +1,9 @@
-struct Body {
-    x: float,
-    y: float,
-    z: float,
-    vx: float,
-    vy: float,
-    vz: float,
-    mass: float,
-}
+// allow(L001)
+use bench.data
 
+struct Body { x: float, y: float, z: float, vx: float, vy: float, vz: float, mass: float }
+
+// allow(L017) -- the simulation stays inline so the body list is never copied.
 on run() -> float {
     let body_count = 5
     let step_count = 100000
@@ -70,8 +66,11 @@ on run() -> float {
                 let mass_i = bodies[i].mass
                 let mass_j = bodies[j].mass
 
+                // allow(L012) -- Martite does not currently lex `-=`.
                 bodies[i].vx = bodies[i].vx - dx * mass_j * magnitude
+                // allow(L012) -- Martite does not currently lex `-=`.
                 bodies[i].vy = bodies[i].vy - dy * mass_j * magnitude
+                // allow(L012) -- Martite does not currently lex `-=`.
                 bodies[i].vz = bodies[i].vz - dz * mass_j * magnitude
                 bodies[j].vx += dx * mass_i * magnitude
                 bodies[j].vy += dy * mass_i * magnitude
@@ -106,6 +105,7 @@ on run() -> float {
             let dx = bodies[i].x - bodies[j].x
             let dy = bodies[i].y - bodies[j].y
             let dz = bodies[i].z - bodies[j].z
+            // allow(L012) -- Martite does not currently lex `-=`.
             energy = energy - bodies[i].mass * bodies[j].mass / (dx * dx + dy * dy + dz * dz).sqrt()
             j += 1
         }

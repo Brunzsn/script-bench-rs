@@ -1,3 +1,6 @@
+// allow(L001)
+use bench.data
+
 on run() -> int {
     let count = 5000
     let unicode_text = "héllo—世界🚀"
@@ -16,9 +19,8 @@ on run() -> int {
     let marked = replaced.replace("row-4999", "last")
     let unicode_length = unicode_text.chars().len()
 
-    var checksum = joined.len() + pipe_joined.len() + marked.len() + split_parts.len() + unicode_length
-    if marked.contains("last") {
-        checksum += 1
-    }
+    var checksum =
+        joined.len() + pipe_joined.len() + marked.len() + split_parts.len() + unicode_length
+    if marked.contains("last") { checksum += 1 }
     checksum
 }

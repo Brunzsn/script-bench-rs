@@ -1,3 +1,7 @@
+// allow(L001)
+use bench.data
+
+// allow(L017) -- the sort stays inline so the large list is never passed by value.
 on run() -> int {
     let item_count = 10000
     let modulus = 1000000007

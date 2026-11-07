@@ -1,3 +1,6 @@
+// allow(L001)
+use bench.data
+
 on run() -> float {
     var value = 1.0
     var index = 0

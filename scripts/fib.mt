@@ -1,7 +1,8 @@
+// allow(L001)
+use bench.data
+
 fn fib(n: int) -> int {
     if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
 }
 
-on run() -> int {
-    fib(32)
-}
+on run() -> int { fib(32) }
