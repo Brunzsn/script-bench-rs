@@ -70,9 +70,9 @@ on run() -> float {
                 let mass_i = bodies[i].mass
                 let mass_j = bodies[j].mass
 
-                bodies[i].vx -= dx * mass_j * magnitude
-                bodies[i].vy -= dy * mass_j * magnitude
-                bodies[i].vz -= dz * mass_j * magnitude
+                bodies[i].vx = bodies[i].vx - dx * mass_j * magnitude
+                bodies[i].vy = bodies[i].vy - dy * mass_j * magnitude
+                bodies[i].vz = bodies[i].vz - dz * mass_j * magnitude
                 bodies[j].vx += dx * mass_i * magnitude
                 bodies[j].vy += dy * mass_i * magnitude
                 bodies[j].vz += dz * mass_i * magnitude
@@ -106,7 +106,7 @@ on run() -> float {
             let dx = bodies[i].x - bodies[j].x
             let dy = bodies[i].y - bodies[j].y
             let dz = bodies[i].z - bodies[j].z
-            energy -= bodies[i].mass * bodies[j].mass / (dx * dx + dy * dy + dz * dz).sqrt()
+            energy = energy - bodies[i].mass * bodies[j].mass / (dx * dx + dy * dy + dz * dz).sqrt()
             j += 1
         }
         i += 1
