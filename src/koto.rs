@@ -2,7 +2,6 @@ use std::rc::Rc;
 
 use anyhow::{anyhow, bail, Result};
 use koto::{derive::*, prelude::*, runtime};
-use rand::RngExt;
 
 use crate::harness::{read_script, Case, Engine, Value};
 

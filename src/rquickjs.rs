@@ -80,7 +80,7 @@ impl Engine for QuickJsEngine {
                 let globals = ctx.globals();
 
                 let rand =
-                    Function::new(ctx.clone(), |n: u32| rand::rng().random_range(0..n))
+                    Function::new(ctx.clone(), |n: u32| rand::rng().random_range(0..n))?
                         .with_name("rand")?;
                 globals.set("rand", rand)?;
 
