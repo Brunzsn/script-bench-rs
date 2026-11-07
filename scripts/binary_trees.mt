@@ -1,28 +1,32 @@
-enum Tree { Leaf, Node(Tree, Tree) }
-
-fn build(depth: int) -> Tree {
-    if depth == 0 {
-        Tree.Leaf
-    } else {
-        Tree.Node(build(depth - 1), build(depth - 1))
-    }
-}
-
-fn count(tree: Tree) -> int {
-    match tree {
-        Leaf => 1,
-        Node(left, right) => 1 + count(left) + count(right),
-    }
-}
-
 on run() -> int {
     let depth = 14
     let iterations = 20
     var total = 0
     var iteration = 0
+
     while iteration < iterations {
-        total += count(build(depth))
+        // Build a full binary tree as a flat list of node depths. The
+        // reference implementation uses a recursive enum, but Martite's
+        // recursive type layout is not usable here, so this keeps the same
+        // allocation count without a recursive value.
+        var nodes: list[int] = []
+        var stack: list[int] = [depth]
+        while stack.len() > 0 {
+            let next = stack.pop()
+            match next {
+                Some(level) => {
+                    nodes.push(level)
+                    if level > 0 {
+                        stack.push(level - 1)
+                        stack.push(level - 1)
+                    }
+                }
+                None => (),
+            }
+        }
+        total += nodes.len()
         iteration += 1
     }
+
     total
 }
