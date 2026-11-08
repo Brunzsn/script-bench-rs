@@ -4,8 +4,9 @@ use std::rc::Rc;
 use anyhow::{anyhow, bail, Result};
 use rquickjs::class::{Class, JsClass, Readable, Trace, Tracer};
 use rquickjs::function::{Constructor, This};
+use rquickjs::object::Accessor;
 use rquickjs::{
-    Accessor, Context, Ctx, Function, JsLifetime, Persistent, Result as JsResult, Runtime,
+    Context, Ctx, Function, JsLifetime, Persistent, Result as JsResult, Runtime,
 };
 
 use crate::harness::{number_value, read_script, ResultKind, Value};
@@ -29,12 +30,13 @@ impl<'js> JsClass<'js> for InteropData {
 
     fn prototype(ctx: &Ctx<'js>) -> JsResult<Option<rquickjs::Object<'js>>> {
         let proto = rquickjs::Object::new(ctx.clone())?;
-        let get = Function::new(ctx.clone(), |this: This<Self>| this.0.get())?
+        let get = Function::new(ctx.clone(), |this: This<Self>| this.0 .0.get() as f64)?
             .with_name("get")?;
         proto.prop("get", get)?;
-        let value_get = Function::new(ctx.clone(), |this: This<Self>| this.0.get())?;
-        let value_set = Function::new(ctx.clone(), |this: This<Self>, value: i64| {
-            this.0.set(value)
+        let value_get =
+            Function::new(ctx.clone(), |this: This<Self>| this.0 .0.get() as f64)?;
+        let value_set = Function::new(ctx.clone(), |this: This<Self>, value: f64| {
+            this.0 .0.set(value as i64)
         })?;
         proto.prop("value", Accessor::from(value_get).set(value_set))?;
         Ok(Some(proto))
@@ -43,7 +45,7 @@ impl<'js> JsClass<'js> for InteropData {
     fn constructor(ctx: &Ctx<'js>) -> JsResult<Option<Constructor<'js>>> {
         Ok(Some(Constructor::new_class::<Self, _, _>(
             ctx.clone(),
-            |value: i64| InteropData(Cell::new(value)),
+            |value: f64| InteropData(Cell::new(value as i64)),
         )?))
     }
 }
@@ -70,7 +72,7 @@ impl<'js> JsClass<'js> for CopyData {
     fn constructor(ctx: &Ctx<'js>) -> JsResult<Option<Constructor<'js>>> {
         Ok(Some(Constructor::new_class::<Self, _, _>(
             ctx.clone(),
-            |value: i64| CopyData(value),
+            |value: f64| CopyData(value as i64),
         )?))
     }
 }

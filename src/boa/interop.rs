@@ -82,6 +82,10 @@ impl Class for CopyData {
     ) -> boa_engine::JsResult<Self> {
         Ok(Self(args[0].to_number(context)? as i64))
     }
+
+    fn init(_class: &mut ClassBuilder) -> boa_engine::JsResult<()> {
+        Ok(())
+    }
 }
 
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Trace, Finalize, JsData)]
@@ -98,6 +102,10 @@ impl Class for RcData {
     ) -> boa_engine::JsResult<Self> {
         let value = args[0].to_string(context)?;
         Ok(Self(value.to_std_string().unwrap().into()))
+    }
+
+    fn init(_class: &mut ClassBuilder) -> boa_engine::JsResult<()> {
+        Ok(())
     }
 }
 

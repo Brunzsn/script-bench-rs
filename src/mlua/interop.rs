@@ -2,7 +2,9 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use anyhow::{anyhow, bail, Result};
-use mlua::{Function, Lua, UserData, UserDataRegistry};
+use mlua::{
+    Function, Lua, UserData, UserDataFields, UserDataMethods, UserDataRegistry,
+};
 
 use crate::harness::{number_value, read_script, ResultKind, Value};
 use crate::interop::host;
@@ -78,14 +80,23 @@ impl InteropEngine for MluaInterop {
         register_host_functions(&lua)?;
         if is_userdata {
             let globals = lua.globals();
-            globals
-                .set("InteropData", lua.create_proxy::<InteropData>()?)
+            let proxy = lua
+                .create_proxy::<InteropData>()
                 .map_err(|error| anyhow!("{error}"))?;
             globals
-                .set("CopyData", lua.create_proxy::<CopyData>()?)
+                .set("InteropData", proxy)
+                .map_err(|error| anyhow!("{error}"))?;
+            let proxy = lua
+                .create_proxy::<CopyData>()
                 .map_err(|error| anyhow!("{error}"))?;
             globals
-                .set("RcData", lua.create_proxy::<RcData>()?)
+                .set("CopyData", proxy)
+                .map_err(|error| anyhow!("{error}"))?;
+            let proxy = lua
+                .create_proxy::<RcData>()
+                .map_err(|error| anyhow!("{error}"))?;
+            globals
+                .set("RcData", proxy)
                 .map_err(|error| anyhow!("{error}"))?;
         }
 
