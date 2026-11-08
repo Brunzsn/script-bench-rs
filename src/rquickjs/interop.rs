@@ -7,7 +7,7 @@ use rquickjs::function::{Constructor, This};
 use rquickjs::object::Accessor;
 use rquickjs::{
     Array, Context, Ctx, FromJs, Function, IntoJs, JsLifetime, Persistent, Result as JsResult,
-    Runtime, Value as JsValue,
+    Runtime, TypedArray, Value as JsValue,
 };
 
 use crate::interop::{BulkMode, BulkValue, Direction};
@@ -149,6 +149,8 @@ enum QuickJsMode {
     Userdata,
     BulkListIn { value: BulkValue, size: usize },
     BulkListOut,
+    BulkBufferIn { value: BulkValue, size: usize },
+    BulkBufferOut,
     Error { propagates: bool },
 }
 
@@ -174,6 +176,13 @@ impl InteropEngine for QuickJsInterop {
                     size: op.size,
                 },
                 Direction::Out => QuickJsMode::BulkListOut,
+            },
+            InteropOp::Bulk(op) if op.mode == BulkMode::Buffer => match op.direction {
+                Direction::In => QuickJsMode::BulkBufferIn {
+                    value: op.value,
+                    size: op.size,
+                },
+                Direction::Out => QuickJsMode::BulkBufferOut,
             },
             InteropOp::Error(op) => QuickJsMode::Error {
                 propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
@@ -300,6 +309,36 @@ impl InteropEngine for QuickJsInterop {
                     })
                     .map_err(|error| anyhow!("{error}"))?;
             }
+            QuickJsMode::BulkBufferIn { value, size } => {
+                self.context
+                    .with(|ctx| {
+                        let func = entry.restore(&ctx)?;
+                        match value {
+                            BulkValue::F64 => {
+                                let array = TypedArray::<f64>::new(
+                                    ctx.clone(),
+                                    host::bulk_f64_values(size),
+                                )?;
+                                func.call::<_, f64>((array,))?;
+                            }
+                            BulkValue::U8 => {
+                                let array =
+                                    TypedArray::<u8>::new(ctx.clone(), host::bulk_u8_values(size))?;
+                                func.call::<_, f64>((array,))?;
+                            }
+                        }
+                        Ok::<(), rquickjs::Error>(())
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
+            }
+            QuickJsMode::BulkBufferOut => {
+                self.context
+                    .with(|ctx| {
+                        let func = entry.restore(&ctx)?;
+                        func.call::<_, f64>(())
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
+            }
             QuickJsMode::Error { propagates } => {
                 let result = self.context.with(|ctx| {
                     let func = entry.restore(&ctx)?;
@@ -410,6 +449,39 @@ impl InteropEngine for QuickJsInterop {
                     .map_err(|error| anyhow!("{error}"))?;
                 number_value(self.result, sum)
             }
+            QuickJsMode::BulkBufferIn { value, size } => {
+                let sum = self
+                    .context
+                    .with(|ctx| {
+                        let func = entry.restore(&ctx)?;
+                        match value {
+                            BulkValue::F64 => {
+                                let array = TypedArray::<f64>::new(
+                                    ctx.clone(),
+                                    host::bulk_f64_values(size),
+                                )?;
+                                func.call::<_, f64>((array,))
+                            }
+                            BulkValue::U8 => {
+                                let array =
+                                    TypedArray::<u8>::new(ctx.clone(), host::bulk_u8_values(size))?;
+                                func.call::<_, f64>((array,))
+                            }
+                        }
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
+                number_value(self.result, sum)
+            }
+            QuickJsMode::BulkBufferOut => {
+                let sum = self
+                    .context
+                    .with(|ctx| {
+                        let func = entry.restore(&ctx)?;
+                        func.call::<_, f64>(())
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
+                number_value(self.result, sum)
+            }
             QuickJsMode::Error { propagates } => {
                 let result = self.context.with(|ctx| {
                     let func = entry.restore(&ctx)?;
@@ -493,6 +565,21 @@ fn register_host_functions(ctx: &Ctx<'_>) -> JsResult<()> {
     })?
     .with_name("interop_sum_u8_list")?;
     globals.set("interop_sum_u8_list", sum_u8)?;
+
+    let sum_f64_buffer = Function::new(ctx.clone(), |values: TypedArray<f64>| -> f64 {
+        unsafe { values.as_slice() }.iter().sum()
+    })?
+    .with_name("interop_sum_f64_buffer")?;
+    globals.set("interop_sum_f64_buffer", sum_f64_buffer)?;
+
+    let sum_u8_buffer = Function::new(ctx.clone(), |values: TypedArray<u8>| -> f64 {
+        unsafe { values.as_slice() }
+            .iter()
+            .map(|value| f64::from(*value))
+            .sum()
+    })?
+    .with_name("interop_sum_u8_buffer")?;
+    globals.set("interop_sum_u8_buffer", sum_u8_buffer)?;
 
     Ok(())
 }

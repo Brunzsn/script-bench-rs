@@ -52,6 +52,8 @@ enum MluaMode {
     Userdata,
     BulkListIn { value: BulkValue, size: usize },
     BulkListOut,
+    BulkBufferIn { value: BulkValue, size: usize },
+    BulkBufferOut,
     Error { propagates: bool },
 }
 
@@ -63,8 +65,40 @@ pub struct MluaInterop {
     result: ResultKind,
 }
 
+impl MluaInterop {
+    #[cfg(feature = "mlua_luau")]
+    fn buffer_in(&mut self, value: BulkValue, size: usize) -> Result<f64> {
+        let bytes = match value {
+            BulkValue::F64 => {
+                let mut bytes = Vec::with_capacity(size * 8);
+                for value in host::bulk_f64_values(size) {
+                    bytes.extend_from_slice(&value.to_le_bytes());
+                }
+                bytes
+            }
+            BulkValue::U8 => host::bulk_u8_values(size),
+        };
+        let buffer = self
+            ._lua
+            .create_buffer(bytes)
+            .map_err(|error| anyhow!("{error}"))?;
+        self.entry
+            .call(buffer)
+            .map_err(|error| anyhow!("{error}"))
+    }
+
+    #[cfg(feature = "mlua_luau")]
+    fn buffer_out(&mut self) -> Result<f64> {
+        self.entry.call(()).map_err(|error| anyhow!("{error}"))
+    }
+}
+
 impl InteropEngine for MluaInterop {
     fn setup(case: &InteropCase) -> Result<Option<Self>> {
+        #[cfg(not(feature = "mlua_luau"))]
+        if matches!(case.op, InteropOp::Bulk(op) if op.mode == BulkMode::Buffer) {
+            return Ok(None);
+        }
         let mode = match case.op {
             InteropOp::Call => MluaMode::Call,
             InteropOp::CallIn { iterations } => MluaMode::CallIn { iterations },
@@ -76,6 +110,13 @@ impl InteropEngine for MluaInterop {
                     size: op.size,
                 },
                 Direction::Out => MluaMode::BulkListOut,
+            },
+            InteropOp::Bulk(op) if op.mode == BulkMode::Buffer => match op.direction {
+                Direction::In => MluaMode::BulkBufferIn {
+                    value: op.value,
+                    size: op.size,
+                },
+                Direction::Out => MluaMode::BulkBufferOut,
             },
             InteropOp::Error(op) => MluaMode::Error {
                 propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
@@ -212,6 +253,29 @@ impl InteropEngine for MluaInterop {
                     .map_err(|error| anyhow!("{error}"))?;
                 std::hint::black_box(result);
             }
+            MluaMode::BulkBufferIn { value, size } => {
+                #[cfg(feature = "mlua_luau")]
+                {
+                    let result = self.buffer_in(value, size)?;
+                    std::hint::black_box(result);
+                }
+                #[cfg(not(feature = "mlua_luau"))]
+                {
+                    let _ = (value, size);
+                    unreachable!("Lua 5.5 does not support buffers");
+                }
+            }
+            MluaMode::BulkBufferOut => {
+                #[cfg(feature = "mlua_luau")]
+                {
+                    let result = self.buffer_out()?;
+                    std::hint::black_box(result);
+                }
+                #[cfg(not(feature = "mlua_luau"))]
+                {
+                    unreachable!("Lua 5.5 does not support buffers");
+                }
+            }
             MluaMode::Error { propagates } => {
                 let result = self.entry.call::<f64>(());
                 match result {
@@ -302,6 +366,29 @@ impl InteropEngine for MluaInterop {
                     .map_err(|error| anyhow!("{error}"))?;
                 number_value(self.result, result)
             }
+            MluaMode::BulkBufferIn { value, size } => {
+                #[cfg(feature = "mlua_luau")]
+                {
+                    let result = self.buffer_in(value, size)?;
+                    number_value(self.result, result)
+                }
+                #[cfg(not(feature = "mlua_luau"))]
+                {
+                    let _ = (value, size);
+                    unreachable!("Lua 5.5 does not support buffers");
+                }
+            }
+            MluaMode::BulkBufferOut => {
+                #[cfg(feature = "mlua_luau")]
+                {
+                    let result = self.buffer_out()?;
+                    number_value(self.result, result)
+                }
+                #[cfg(not(feature = "mlua_luau"))]
+                {
+                    unreachable!("Lua 5.5 does not support buffers");
+                }
+            }
             MluaMode::Error { propagates } => {
                 let result = self.entry.call::<f64>(());
                 match result {
@@ -391,6 +478,39 @@ fn register_host_functions(lua: &Lua) -> Result<()> {
             }),
         )
         .map_err(|error| anyhow!("{error}"))?;
+    #[cfg(feature = "mlua_luau")]
+    {
+        globals
+            .set(
+                "interop_sum_f64_buffer",
+                Function::wrap_raw(|buffer: mlua::Buffer| -> f64 {
+                    let mut sum = 0.0f64;
+                    let mut offset = 0;
+                    while offset + 8 <= buffer.len() {
+                        let bytes = buffer.read_bytes::<8>(offset);
+                        sum += f64::from_le_bytes(bytes);
+                        offset += 8;
+                    }
+                    sum
+                }),
+            )
+            .map_err(|error| anyhow!("{error}"))?;
+        globals
+            .set(
+                "interop_sum_u8_buffer",
+                Function::wrap_raw(|buffer: mlua::Buffer| -> f64 {
+                    let mut sum = 0.0f64;
+                    let mut offset = 0;
+                    while offset < buffer.len() {
+                        let bytes = buffer.read_bytes::<1>(offset);
+                        sum += f64::from(bytes[0]);
+                        offset += 1;
+                    }
+                    sum
+                }),
+            )
+            .map_err(|error| anyhow!("{error}"))?;
+    }
     globals
         .set(
             "interop_fail",

@@ -18,6 +18,158 @@ const LIST_SCRIPTS: Scripts = Scripts {
     wasm_module: None,
 };
 
+const BUFFER_SCRIPTS: Scripts = Scripts {
+    js: Some("scripts/interop_bulk_buffer.js"),
+    koto: None,
+    lua: Some("scripts/interop_bulk_buffer.lua"),
+    martite_script: None,
+    martite_interface: None,
+    rhai: None,
+    roto: None,
+    wasm_source: None,
+    wasm_module: None,
+};
+
+macro_rules! buffer_case {
+    ($constant:ident, $name:literal, $entry:literal, $value:expr, $direction:expr, $size:expr, $native:ident, $validate:ident) => {
+        pub const $constant: InteropCase = InteropCase {
+            name: $name,
+            op: InteropOp::Bulk(BulkOp {
+                value: $value,
+                direction: $direction,
+                mode: BulkMode::Buffer,
+                size: $size,
+            }),
+            entry: $entry,
+            scripts: BUFFER_SCRIPTS,
+            result: ResultKind::Float,
+            native: $native,
+            validate: $validate,
+        };
+    };
+}
+
+buffer_case!(
+    F64_IN_BUFFER_1K,
+    "Interop bulk f64 in buffer 1k",
+    "bench_bulk_f64_in_buffer",
+    BulkValue::F64,
+    Direction::In,
+    1_000,
+    native_f64_1k,
+    validate_1k
+);
+buffer_case!(
+    F64_IN_BUFFER_100K,
+    "Interop bulk f64 in buffer 100k",
+    "bench_bulk_f64_in_buffer",
+    BulkValue::F64,
+    Direction::In,
+    100_000,
+    native_f64_100k,
+    validate_100k
+);
+buffer_case!(
+    F64_IN_BUFFER_1M,
+    "Interop bulk f64 in buffer 1M",
+    "bench_bulk_f64_in_buffer",
+    BulkValue::F64,
+    Direction::In,
+    1_000_000,
+    native_f64_1m,
+    validate_1m
+);
+buffer_case!(
+    F64_OUT_BUFFER_1K,
+    "Interop bulk f64 out buffer 1k",
+    "bench_bulk_f64_out_buffer_1k",
+    BulkValue::F64,
+    Direction::Out,
+    1_000,
+    native_f64_1k,
+    validate_1k
+);
+buffer_case!(
+    F64_OUT_BUFFER_100K,
+    "Interop bulk f64 out buffer 100k",
+    "bench_bulk_f64_out_buffer_100k",
+    BulkValue::F64,
+    Direction::Out,
+    100_000,
+    native_f64_100k,
+    validate_100k
+);
+buffer_case!(
+    F64_OUT_BUFFER_1M,
+    "Interop bulk f64 out buffer 1M",
+    "bench_bulk_f64_out_buffer_1m",
+    BulkValue::F64,
+    Direction::Out,
+    1_000_000,
+    native_f64_1m,
+    validate_1m
+);
+buffer_case!(
+    U8_IN_BUFFER_1K,
+    "Interop bulk u8 in buffer 1k",
+    "bench_bulk_u8_in_buffer",
+    BulkValue::U8,
+    Direction::In,
+    1_000,
+    native_u8_1k,
+    validate_1k
+);
+buffer_case!(
+    U8_IN_BUFFER_100K,
+    "Interop bulk u8 in buffer 100k",
+    "bench_bulk_u8_in_buffer",
+    BulkValue::U8,
+    Direction::In,
+    100_000,
+    native_u8_100k,
+    validate_100k
+);
+buffer_case!(
+    U8_IN_BUFFER_1M,
+    "Interop bulk u8 in buffer 1M",
+    "bench_bulk_u8_in_buffer",
+    BulkValue::U8,
+    Direction::In,
+    1_000_000,
+    native_u8_1m,
+    validate_1m
+);
+buffer_case!(
+    U8_OUT_BUFFER_1K,
+    "Interop bulk u8 out buffer 1k",
+    "bench_bulk_u8_out_buffer_1k",
+    BulkValue::U8,
+    Direction::Out,
+    1_000,
+    native_u8_1k,
+    validate_1k
+);
+buffer_case!(
+    U8_OUT_BUFFER_100K,
+    "Interop bulk u8 out buffer 100k",
+    "bench_bulk_u8_out_buffer_100k",
+    BulkValue::U8,
+    Direction::Out,
+    100_000,
+    native_u8_100k,
+    validate_100k
+);
+buffer_case!(
+    U8_OUT_BUFFER_1M,
+    "Interop bulk u8 out buffer 1M",
+    "bench_bulk_u8_out_buffer_1m",
+    BulkValue::U8,
+    Direction::Out,
+    1_000_000,
+    native_u8_1m,
+    validate_1m
+);
+
 macro_rules! list_case {
     ($constant:ident, $name:literal, $entry:literal, $value:expr, $direction:expr, $size:expr, $native:ident, $validate:ident) => {
         pub const $constant: InteropCase = InteropCase {
