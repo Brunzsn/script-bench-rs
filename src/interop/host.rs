@@ -24,6 +24,7 @@ pub const I64_ARGS_5: [i64; 5] = [1, 2, 3, 4, 5];
 pub const F64_ARG: f64 = 1.5;
 pub const CALLBACK_INCREMENT: i64 = 1;
 pub const HOST_ERROR: &str = "interop error";
+pub const UPDATE_DT: f64 = 1.5;
 
 #[inline(never)]
 pub fn ping() -> i64 {
@@ -63,6 +64,25 @@ pub fn string_out() -> String {
 #[inline(never)]
 pub fn callback_value(value: i64) -> i64 {
     value + CALLBACK_INCREMENT
+}
+
+#[inline(never)]
+pub fn update(dt: f64) -> f64 {
+    dt * 2.0 + 1.0
+}
+
+/// Expected result of the Rust-driven call-in loop.
+pub fn expected_call_in() -> f64 {
+    DRIVEN_ITERATIONS as f64 * update(UPDATE_DT)
+}
+
+/// Native baseline for the Rust-driven call-in loop.
+pub fn native_call_in() {
+    let mut sum = 0.0f64;
+    for _ in 0..DRIVEN_ITERATIONS {
+        sum += update(UPDATE_DT);
+    }
+    keep(sum);
 }
 
 #[inline(never)]

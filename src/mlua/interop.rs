@@ -5,18 +5,26 @@ use crate::harness::{number_value, read_script, ResultKind, Value};
 use crate::interop::host;
 use crate::interop::{InteropCase, InteropEngine, InteropOp};
 
+enum MluaMode {
+    Call,
+    CallIn { iterations: usize },
+}
+
 pub struct MluaInterop {
     // The function handle must be dropped before the Lua state.
     entry: Function,
     _lua: Lua,
+    mode: MluaMode,
     result: ResultKind,
 }
 
 impl InteropEngine for MluaInterop {
     fn setup(case: &InteropCase) -> Result<Option<Self>> {
-        if case.op != InteropOp::Call {
-            return Ok(None);
-        }
+        let mode = match case.op {
+            InteropOp::Call => MluaMode::Call,
+            InteropOp::CallIn { iterations } => MluaMode::CallIn { iterations },
+            _ => return Ok(None),
+        };
         let Some(script_path) = case.scripts.lua else {
             return Ok(None);
         };
@@ -43,23 +51,54 @@ impl InteropEngine for MluaInterop {
         Ok(Some(Self {
             entry,
             _lua: lua,
+            mode,
             result: case.result,
         }))
     }
 
     fn run(&mut self) -> Result<()> {
-        self.entry
-            .call::<mlua::Value>(())
-            .map_err(|error| anyhow!("{error}"))?;
+        match self.mode {
+            MluaMode::Call => {
+                self.entry
+                    .call::<mlua::Value>(())
+                    .map_err(|error| anyhow!("{error}"))?;
+            }
+            MluaMode::CallIn { iterations } => {
+                let mut sum = 0.0f64;
+                for _ in 0..iterations {
+                    let value: f64 = self
+                        .entry
+                        .call(host::UPDATE_DT)
+                        .map_err(|error| anyhow!("{error}"))?;
+                    sum += value;
+                }
+                std::hint::black_box(sum);
+            }
+        }
         Ok(())
     }
 
     fn run_checked(&mut self) -> Result<Value> {
-        let number: f64 = self
-            .entry
-            .call(())
-            .map_err(|error| anyhow!("{error}"))?;
-        number_value(self.result, number)
+        match self.mode {
+            MluaMode::Call => {
+                let number: f64 = self
+                    .entry
+                    .call(())
+                    .map_err(|error| anyhow!("{error}"))?;
+                number_value(self.result, number)
+            }
+            MluaMode::CallIn { iterations } => {
+                let mut sum = 0.0f64;
+                for _ in 0..iterations {
+                    let value: f64 = self
+                        .entry
+                        .call(host::UPDATE_DT)
+                        .map_err(|error| anyhow!("{error}"))?;
+                    sum += value;
+                }
+                Ok(Value::Float(sum))
+            }
+        }
     }
 }
 

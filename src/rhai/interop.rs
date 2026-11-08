@@ -4,19 +4,27 @@ use crate::harness::{read_script, ResultKind, Value};
 use crate::interop::host;
 use crate::interop::{InteropCase, InteropEngine, InteropOp};
 
+enum RhaiMode {
+    Call,
+    CallIn { iterations: usize },
+}
+
 pub struct RhaiInterop {
     engine: rhai::Engine,
     ast: rhai::AST,
     scope: rhai::Scope<'static>,
     entry: &'static str,
+    mode: RhaiMode,
     result: ResultKind,
 }
 
 impl InteropEngine for RhaiInterop {
     fn setup(case: &InteropCase) -> Result<Option<Self>> {
-        if case.op != InteropOp::Call {
-            return Ok(None);
-        }
+        let mode = match case.op {
+            InteropOp::Call => RhaiMode::Call,
+            InteropOp::CallIn { iterations } => RhaiMode::CallIn { iterations },
+            _ => return Ok(None),
+        };
         let Some(script_path) = case.scripts.rhai else {
             return Ok(None);
         };
@@ -36,46 +44,83 @@ impl InteropEngine for RhaiInterop {
             ast,
             scope: rhai::Scope::new(),
             entry: case.entry,
+            mode,
             result: case.result,
         }))
     }
 
     fn run(&mut self) -> Result<()> {
-        match self.result {
-            ResultKind::Int => {
-                let _: i64 = self
-                    .engine
-                    .call_fn(&mut self.scope, &self.ast, self.entry, ())
-                    .map_err(|error| anyhow!("{error}"))?;
+        match self.mode {
+            RhaiMode::Call => match self.result {
+                ResultKind::Int => {
+                    let _: i64 = self
+                        .engine
+                        .call_fn(&mut self.scope, &self.ast, self.entry, ())
+                        .map_err(|error| anyhow!("{error}"))?;
+                }
+                ResultKind::Float => {
+                    let _: f64 = self
+                        .engine
+                        .call_fn(&mut self.scope, &self.ast, self.entry, ())
+                        .map_err(|error| anyhow!("{error}"))?;
+                }
+                ResultKind::UserDataList => bail!("interop cases cannot return userdata lists"),
+            },
+            RhaiMode::CallIn { iterations } => {
+                let mut sum = 0.0f64;
+                for _ in 0..iterations {
+                    let value: f64 = self
+                        .engine
+                        .call_fn(
+                            &mut self.scope,
+                            &self.ast,
+                            self.entry,
+                            (host::UPDATE_DT,),
+                        )
+                        .map_err(|error| anyhow!("{error}"))?;
+                    sum += value;
+                }
+                std::hint::black_box(sum);
             }
-            ResultKind::Float => {
-                let _: f64 = self
-                    .engine
-                    .call_fn(&mut self.scope, &self.ast, self.entry, ())
-                    .map_err(|error| anyhow!("{error}"))?;
-            }
-            ResultKind::UserDataList => bail!("interop cases cannot return userdata lists"),
         }
         Ok(())
     }
 
     fn run_checked(&mut self) -> Result<Value> {
-        match self.result {
-            ResultKind::Int => {
-                let value: i64 = self
-                    .engine
-                    .call_fn(&mut self.scope, &self.ast, self.entry, ())
-                    .map_err(|error| anyhow!("{error}"))?;
-                Ok(Value::Int(value))
+        match self.mode {
+            RhaiMode::Call => match self.result {
+                ResultKind::Int => {
+                    let value: i64 = self
+                        .engine
+                        .call_fn(&mut self.scope, &self.ast, self.entry, ())
+                        .map_err(|error| anyhow!("{error}"))?;
+                    Ok(Value::Int(value))
+                }
+                ResultKind::Float => {
+                    let value: f64 = self
+                        .engine
+                        .call_fn(&mut self.scope, &self.ast, self.entry, ())
+                        .map_err(|error| anyhow!("{error}"))?;
+                    Ok(Value::Float(value))
+                }
+                ResultKind::UserDataList => bail!("interop cases cannot return userdata lists"),
+            },
+            RhaiMode::CallIn { iterations } => {
+                let mut sum = 0.0f64;
+                for _ in 0..iterations {
+                    let value: f64 = self
+                        .engine
+                        .call_fn(
+                            &mut self.scope,
+                            &self.ast,
+                            self.entry,
+                            (host::UPDATE_DT,),
+                        )
+                        .map_err(|error| anyhow!("{error}"))?;
+                    sum += value;
+                }
+                Ok(Value::Float(sum))
             }
-            ResultKind::Float => {
-                let value: f64 = self
-                    .engine
-                    .call_fn(&mut self.scope, &self.ast, self.entry, ())
-                    .map_err(|error| anyhow!("{error}"))?;
-                Ok(Value::Float(value))
-            }
-            ResultKind::UserDataList => bail!("interop cases cannot return userdata lists"),
         }
     }
 }

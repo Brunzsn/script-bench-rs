@@ -8,17 +8,25 @@ use crate::martite::Value;
 
 use super::{LIMITS, MANIFEST};
 
+enum MartiteMode {
+    Call,
+    CallIn { iterations: usize },
+}
+
 pub struct MartiteInterop {
     instance: Instance<'static>,
     entry: &'static str,
+    mode: MartiteMode,
     result: ResultKind,
 }
 
 impl InteropEngine for MartiteInterop {
     fn setup(case: &InteropCase) -> Result<Option<Self>> {
-        if case.op != InteropOp::Call {
-            return Ok(None);
-        }
+        let mode = match case.op {
+            InteropOp::Call => MartiteMode::Call,
+            InteropOp::CallIn { iterations } => MartiteMode::CallIn { iterations },
+            _ => return Ok(None),
+        };
         let (Some(script_path), Some(interface_path)) = (
             case.scripts.martite_script,
             case.scripts.martite_interface,
@@ -62,35 +70,83 @@ impl InteropEngine for MartiteInterop {
         Ok(Some(Self {
             instance,
             entry: case.entry,
+            mode,
             result: case.result,
         }))
     }
 
     fn run(&mut self) -> Result<()> {
-        self.instance
-            .call(self.entry, Vec::new())
-            .map_err(|trap| anyhow!("Martite interop failed: {}", trap.panic_message()))?;
+        match self.mode {
+            MartiteMode::Call => {
+                self.instance
+                    .call(self.entry, Vec::new())
+                    .map_err(|trap| {
+                        anyhow!("Martite interop failed: {}", trap.panic_message())
+                    })?;
+            }
+            MartiteMode::CallIn { iterations } => {
+                let mut sum = 0.0f64;
+                for _ in 0..iterations {
+                    let outcome = self
+                        .instance
+                        .call(self.entry, vec![Value::Float(host::UPDATE_DT)])
+                        .map_err(|trap| {
+                            anyhow!("Martite interop failed: {}", trap.panic_message())
+                        })?;
+                    let Outcome::Handled(Value::Float(value)) = outcome else {
+                        bail!("expected `{}` to return a float", self.entry);
+                    };
+                    sum += value;
+                }
+                std::hint::black_box(sum);
+            }
+        }
         Ok(())
     }
 
     fn run_checked(&mut self) -> Result<BenchValue> {
-        let outcome = self
-            .instance
-            .call(self.entry, Vec::new())
-            .map_err(|trap| anyhow!("Martite interop failed: {}", trap.panic_message()))?;
+        match self.mode {
+            MartiteMode::Call => {
+                let outcome = self.instance.call(self.entry, Vec::new()).map_err(|trap| {
+                    anyhow!("Martite interop failed: {}", trap.panic_message())
+                })?;
 
-        match (self.result, outcome) {
-            (ResultKind::Int, Outcome::Handled(Value::Int(value))) => Ok(BenchValue::Int(value)),
-            (ResultKind::Float, Outcome::Handled(Value::Float(value))) => {
-                Ok(BenchValue::Float(value))
+                match (self.result, outcome) {
+                    (ResultKind::Int, Outcome::Handled(Value::Int(value))) => {
+                        Ok(BenchValue::Int(value))
+                    }
+                    (ResultKind::Float, Outcome::Handled(Value::Float(value))) => {
+                        Ok(BenchValue::Float(value))
+                    }
+                    (ResultKind::Int, Outcome::Handled(_)) => {
+                        bail!("expected `{}` to return an int", self.entry)
+                    }
+                    (ResultKind::Float, Outcome::Handled(_)) => {
+                        bail!("expected `{}` to return a float", self.entry)
+                    }
+                    (_, Outcome::NoHandler) => {
+                        bail!("Martite plugin has no `{}` handler", self.entry)
+                    }
+                    (ResultKind::UserDataList, Outcome::Handled(_)) => {
+                        bail!("interop cases cannot return userdata lists")
+                    }
+                }
             }
-            (ResultKind::Int, Outcome::Handled(_)) => bail!("expected `{}` to return an int", self.entry),
-            (ResultKind::Float, Outcome::Handled(_)) => {
-                bail!("expected `{}` to return a float", self.entry)
-            }
-            (_, Outcome::NoHandler) => bail!("Martite plugin has no `{}` handler", self.entry),
-            (ResultKind::UserDataList, Outcome::Handled(_)) => {
-                bail!("interop cases cannot return userdata lists")
+            MartiteMode::CallIn { iterations } => {
+                let mut sum = 0.0f64;
+                for _ in 0..iterations {
+                    let outcome = self
+                        .instance
+                        .call(self.entry, vec![Value::Float(host::UPDATE_DT)])
+                        .map_err(|trap| {
+                            anyhow!("Martite interop failed: {}", trap.panic_message())
+                        })?;
+                    let Outcome::Handled(Value::Float(value)) = outcome else {
+                        bail!("expected `{}` to return a float", self.entry);
+                    };
+                    sum += value;
+                }
+                Ok(BenchValue::Float(sum))
             }
         }
     }

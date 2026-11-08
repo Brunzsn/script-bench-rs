@@ -5,17 +5,25 @@ use crate::harness::{number_value, read_script, ResultKind, Value};
 use crate::interop::host;
 use crate::interop::{InteropCase, InteropEngine, InteropOp};
 
+enum KotoMode {
+    Call,
+    CallIn { iterations: usize },
+}
+
 pub struct KotoInterop {
     engine: Koto,
     entry: KValue,
+    mode: KotoMode,
     result: ResultKind,
 }
 
 impl InteropEngine for KotoInterop {
     fn setup(case: &InteropCase) -> Result<Option<Self>> {
-        if case.op != InteropOp::Call {
-            return Ok(None);
-        }
+        let mode = match case.op {
+            InteropOp::Call => KotoMode::Call,
+            InteropOp::CallIn { iterations } => KotoMode::CallIn { iterations },
+            _ => return Ok(None),
+        };
         let Some(script_path) = case.scripts.koto else {
             return Ok(None);
         };
@@ -37,26 +45,65 @@ impl InteropEngine for KotoInterop {
         Ok(Some(Self {
             engine,
             entry,
+            mode,
             result: case.result,
         }))
     }
 
     fn run(&mut self) -> Result<()> {
-        self.engine
-            .call_function(self.entry.clone(), &[])
-            .map_err(|error| anyhow!("{error}"))?;
+        match self.mode {
+            KotoMode::Call => {
+                self.engine
+                    .call_function(self.entry.clone(), &[])
+                    .map_err(|error| anyhow!("{error}"))?;
+            }
+            KotoMode::CallIn { iterations } => {
+                let arg = KValue::from(host::UPDATE_DT);
+                let mut sum = 0.0f64;
+                for _ in 0..iterations {
+                    let value = self
+                        .engine
+                        .call_function(self.entry.clone(), &[arg.clone()])
+                        .map_err(|error| anyhow!("{error}"))?;
+                    let KValue::Number(number) = value else {
+                        bail!("interop call-in did not return a number");
+                    };
+                    sum += f64::from(number);
+                }
+                std::hint::black_box(sum);
+            }
+        }
         Ok(())
     }
 
     fn run_checked(&mut self) -> Result<Value> {
-        let value = self
-            .engine
-            .call_function(self.entry.clone(), &[])
-            .map_err(|error| anyhow!("{error}"))?;
-        let KValue::Number(number) = value else {
-            bail!("interop entry did not return a number");
-        };
-        number_value(self.result, f64::from(number))
+        match self.mode {
+            KotoMode::Call => {
+                let value = self
+                    .engine
+                    .call_function(self.entry.clone(), &[])
+                    .map_err(|error| anyhow!("{error}"))?;
+                let KValue::Number(number) = value else {
+                    bail!("interop entry did not return a number");
+                };
+                number_value(self.result, f64::from(number))
+            }
+            KotoMode::CallIn { iterations } => {
+                let arg = KValue::from(host::UPDATE_DT);
+                let mut sum = 0.0f64;
+                for _ in 0..iterations {
+                    let value = self
+                        .engine
+                        .call_function(self.entry.clone(), &[arg.clone()])
+                        .map_err(|error| anyhow!("{error}"))?;
+                    let KValue::Number(number) = value else {
+                        bail!("interop call-in did not return a number");
+                    };
+                    sum += f64::from(number);
+                }
+                Ok(Value::Float(sum))
+            }
+        }
     }
 }
 

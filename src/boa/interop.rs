@@ -7,17 +7,35 @@ use crate::harness::{number_value, read_script, ResultKind, Value};
 use crate::interop::host;
 use crate::interop::{InteropCase, InteropEngine, InteropOp};
 
+enum BoaMode {
+    Call,
+    CallIn { iterations: usize },
+}
+
 pub struct BoaInterop {
     context: boa_engine::Context,
     entry: JsValue,
+    mode: BoaMode,
     result: ResultKind,
+}
+
+impl BoaInterop {
+    fn call(&mut self, args: &[JsValue]) -> Result<JsValue> {
+        let Some(func) = self.entry.as_callable() else {
+            bail!("interop entry is not callable");
+        };
+        func.call(&self.entry, args, &mut self.context)
+            .map_err(|error| anyhow!("{error}"))
+    }
 }
 
 impl InteropEngine for BoaInterop {
     fn setup(case: &InteropCase) -> Result<Option<Self>> {
-        if case.op != InteropOp::Call {
-            return Ok(None);
-        }
+        let mode = match case.op {
+            InteropOp::Call => BoaMode::Call,
+            InteropOp::CallIn { iterations } => BoaMode::CallIn { iterations },
+            _ => return Ok(None),
+        };
         let Some(script_path) = case.scripts.js else {
             return Ok(None);
         };
@@ -38,30 +56,50 @@ impl InteropEngine for BoaInterop {
         Ok(Some(Self {
             context,
             entry,
+            mode,
             result: case.result,
         }))
     }
 
     fn run(&mut self) -> Result<()> {
-        let Some(func) = self.entry.as_callable() else {
-            bail!("`{}` is not callable", "interop entry");
-        };
-        func.call(&self.entry, &[], &mut self.context)
-            .map_err(|error| anyhow!("{error}"))?;
+        match self.mode {
+            BoaMode::Call => {
+                self.call(&[])?;
+            }
+            BoaMode::CallIn { iterations } => {
+                let mut sum = 0.0f64;
+                for _ in 0..iterations {
+                    let value = self.call(&[JsValue::from(host::UPDATE_DT)])?;
+                    sum += value
+                        .to_number(&mut self.context)
+                        .map_err(|error| anyhow!("{error}"))?;
+                }
+                std::hint::black_box(sum);
+            }
+        }
         Ok(())
     }
 
     fn run_checked(&mut self) -> Result<Value> {
-        let Some(func) = self.entry.as_callable() else {
-            bail!("interop entry is not callable");
-        };
-        let value = func
-            .call(&self.entry, &[], &mut self.context)
-            .map_err(|error| anyhow!("{error}"))?;
-        let number = value
-            .to_number(&mut self.context)
-            .map_err(|error| anyhow!("{error}"))?;
-        number_value(self.result, number)
+        match self.mode {
+            BoaMode::Call => {
+                let value = self.call(&[])?;
+                let number = value
+                    .to_number(&mut self.context)
+                    .map_err(|error| anyhow!("{error}"))?;
+                number_value(self.result, number)
+            }
+            BoaMode::CallIn { iterations } => {
+                let mut sum = 0.0f64;
+                for _ in 0..iterations {
+                    let value = self.call(&[JsValue::from(host::UPDATE_DT)])?;
+                    sum += value
+                        .to_number(&mut self.context)
+                        .map_err(|error| anyhow!("{error}"))?;
+                }
+                Ok(Value::Float(sum))
+            }
+        }
     }
 }
 

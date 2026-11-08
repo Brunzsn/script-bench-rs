@@ -7,10 +7,12 @@ use crate::interop::{InteropCase, InteropEngine, InteropOp};
 
 type IntBenchFn = fn() -> u64;
 type FloatBenchFn = fn() -> f64;
+type UpdateFn = fn(f64) -> f64;
 
 enum RotoInteropFn {
     Int(roto::TypedFunc<roto::NoCtx, IntBenchFn>),
     Float(roto::TypedFunc<roto::NoCtx, FloatBenchFn>),
+    CallIn(roto::TypedFunc<roto::NoCtx, UpdateFn>, usize),
 }
 
 pub struct RotoInterop {
@@ -19,7 +21,7 @@ pub struct RotoInterop {
 
 impl InteropEngine for RotoInterop {
     fn setup(case: &InteropCase) -> Result<Option<Self>> {
-        if case.op != InteropOp::Call {
+        if !matches!(case.op, InteropOp::Call | InteropOp::CallIn { .. }) {
             return Ok(None);
         }
         let Some(script) = case.scripts.roto else {
@@ -67,18 +69,29 @@ impl InteropEngine for RotoInterop {
             .compile(script_path(script))
             .map_err(|error| anyhow!("{error:?}"))?;
 
-        let func = match case.result {
-            ResultKind::Int => RotoInteropFn::Int(
+        let func = match case.op {
+            InteropOp::CallIn { iterations } => RotoInteropFn::CallIn(
                 package
-                    .get_function::<IntBenchFn>(case.entry)
+                    .get_function::<UpdateFn>(case.entry)
                     .map_err(|error| anyhow!("{error:?}"))?,
+                iterations,
             ),
-            ResultKind::Float => RotoInteropFn::Float(
-                package
-                    .get_function::<FloatBenchFn>(case.entry)
-                    .map_err(|error| anyhow!("{error:?}"))?,
-            ),
-            ResultKind::UserDataList => bail!("interop cases cannot return userdata lists"),
+            InteropOp::Call => match case.result {
+                ResultKind::Int => RotoInteropFn::Int(
+                    package
+                        .get_function::<IntBenchFn>(case.entry)
+                        .map_err(|error| anyhow!("{error:?}"))?,
+                ),
+                ResultKind::Float => RotoInteropFn::Float(
+                    package
+                        .get_function::<FloatBenchFn>(case.entry)
+                        .map_err(|error| anyhow!("{error:?}"))?,
+                ),
+                ResultKind::UserDataList => {
+                    bail!("interop cases cannot return userdata lists")
+                }
+            },
+            _ => return Ok(None),
         };
 
         Ok(Some(Self { func }))
@@ -92,6 +105,13 @@ impl InteropEngine for RotoInterop {
             RotoInteropFn::Float(func) => {
                 func.call();
             }
+            RotoInteropFn::CallIn(func, iterations) => {
+                let mut sum = 0.0f64;
+                for _ in 0..*iterations {
+                    sum += func.call(host::UPDATE_DT);
+                }
+                std::hint::black_box(sum);
+            }
         }
         Ok(())
     }
@@ -100,6 +120,13 @@ impl InteropEngine for RotoInterop {
         match &self.func {
             RotoInteropFn::Int(func) => Ok(Value::Int(func.call() as i64)),
             RotoInteropFn::Float(func) => Ok(Value::Float(func.call())),
+            RotoInteropFn::CallIn(func, iterations) => {
+                let mut sum = 0.0f64;
+                for _ in 0..*iterations {
+                    sum += func.call(host::UPDATE_DT);
+                }
+                Ok(Value::Float(sum))
+            }
         }
     }
 }

@@ -5,19 +5,27 @@ use crate::harness::{number_value, read_script, ResultKind, Value};
 use crate::interop::host;
 use crate::interop::{InteropCase, InteropEngine, InteropOp};
 
+enum QuickJsMode {
+    Call,
+    CallIn { iterations: usize },
+}
+
 pub struct QuickJsInterop {
     // The function handle must be dropped before the context and runtime.
     entry: Persistent<Function<'static>>,
     context: Context,
     _runtime: Runtime,
+    mode: QuickJsMode,
     result: ResultKind,
 }
 
 impl InteropEngine for QuickJsInterop {
     fn setup(case: &InteropCase) -> Result<Option<Self>> {
-        if case.op != InteropOp::Call {
-            return Ok(None);
-        }
+        let mode = match case.op {
+            InteropOp::Call => QuickJsMode::Call,
+            InteropOp::CallIn { iterations } => QuickJsMode::CallIn { iterations },
+            _ => return Ok(None),
+        };
         let Some(script_path) = case.scripts.js else {
             return Ok(None);
         };
@@ -39,31 +47,69 @@ impl InteropEngine for QuickJsInterop {
             entry,
             context,
             _runtime: runtime,
+            mode,
             result: case.result,
         }))
     }
 
     fn run(&mut self) -> Result<()> {
         let entry = self.entry.clone();
-        self.context
-            .with(|ctx| {
-                let func = entry.restore(&ctx)?;
-                func.call::<_, ()>(())
-            })
-            .map_err(|error| anyhow!("{error}"))?;
+        match self.mode {
+            QuickJsMode::Call => {
+                self.context
+                    .with(|ctx| {
+                        let func = entry.restore(&ctx)?;
+                        func.call::<_, ()>(())
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
+            }
+            QuickJsMode::CallIn { iterations } => {
+                self.context
+                    .with(|ctx| {
+                        let func = entry.restore(&ctx)?;
+                        let mut sum = 0.0f64;
+                        for _ in 0..iterations {
+                            let value: f64 = func.call((host::UPDATE_DT,))?;
+                            sum += value;
+                        }
+                        std::hint::black_box(sum);
+                        Ok::<(), rquickjs::Error>(())
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
+            }
+        }
         Ok(())
     }
 
     fn run_checked(&mut self) -> Result<Value> {
         let entry = self.entry.clone();
-        let number = self
-            .context
-            .with(|ctx| {
-                let func = entry.restore(&ctx)?;
-                func.call::<_, f64>(())
-            })
-            .map_err(|error| anyhow!("{error}"))?;
-        number_value(self.result, number)
+        match self.mode {
+            QuickJsMode::Call => {
+                let number = self
+                    .context
+                    .with(|ctx| {
+                        let func = entry.restore(&ctx)?;
+                        func.call::<_, f64>(())
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
+                number_value(self.result, number)
+            }
+            QuickJsMode::CallIn { iterations } => {
+                let sum = self
+                    .context
+                    .with(|ctx| {
+                        let func = entry.restore(&ctx)?;
+                        let mut sum = 0.0f64;
+                        for _ in 0..iterations {
+                            let value: f64 = func.call((host::UPDATE_DT,))?;
+                            sum += value;
+                        }
+                        Ok::<f64, rquickjs::Error>(sum)
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
+                Ok(Value::Float(sum))
+            }
+        }
     }
 }
 
