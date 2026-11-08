@@ -71,7 +71,7 @@ impl InteropEngine for RhaiInterop {
     }
 
     fn run(&mut self) -> Result<()> {
-        match self.mode {
+        match &self.mode {
             RhaiMode::Call => match self.result {
                 ResultKind::Int => {
                     let _: i64 = self
@@ -89,7 +89,7 @@ impl InteropEngine for RhaiInterop {
             },
             RhaiMode::CallIn { iterations } => {
                 let mut sum = 0.0f64;
-                for _ in 0..iterations {
+                for _ in 0..*iterations {
                     let value: f64 = self
                         .engine
                         .call_fn(
@@ -108,7 +108,7 @@ impl InteropEngine for RhaiInterop {
                 iterations,
             } => {
                 let mut sum = 0i64;
-                for index in 0..iterations {
+                for index in 0..*iterations {
                     let value: i64 = callback
                         .call(&self.engine, &self.ast, (index as i64,))
                         .map_err(|error| anyhow!("{error}"))?;
@@ -121,7 +121,7 @@ impl InteropEngine for RhaiInterop {
     }
 
     fn run_checked(&mut self) -> Result<Value> {
-        match self.mode {
+        match &self.mode {
             RhaiMode::Call => match self.result {
                 ResultKind::Int => {
                     let value: i64 = self
@@ -141,7 +141,7 @@ impl InteropEngine for RhaiInterop {
             },
             RhaiMode::CallIn { iterations } => {
                 let mut sum = 0.0f64;
-                for _ in 0..iterations {
+                for _ in 0..*iterations {
                     let value: f64 = self
                         .engine
                         .call_fn(
@@ -160,7 +160,7 @@ impl InteropEngine for RhaiInterop {
                 iterations,
             } => {
                 let mut sum = 0i64;
-                for index in 0..iterations {
+                for index in 0..*iterations {
                     let value: i64 = callback
                         .call(&self.engine, &self.ast, (index as i64,))
                         .map_err(|error| anyhow!("{error}"))?;
