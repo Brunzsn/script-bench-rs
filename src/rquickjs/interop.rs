@@ -9,6 +9,7 @@ enum QuickJsMode {
     Call,
     CallIn { iterations: usize },
     Callback { iterations: usize },
+    Error { propagates: bool },
 }
 
 pub struct QuickJsInterop {
@@ -26,6 +27,9 @@ impl InteropEngine for QuickJsInterop {
             InteropOp::Call => QuickJsMode::Call,
             InteropOp::CallIn { iterations } => QuickJsMode::CallIn { iterations },
             InteropOp::Callback { iterations } => QuickJsMode::Callback { iterations },
+            InteropOp::Error(op) => QuickJsMode::Error {
+                propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
+            },
             _ => return Ok(None),
         };
         let is_callback = matches!(mode, QuickJsMode::Callback { .. });
@@ -99,6 +103,22 @@ impl InteropEngine for QuickJsInterop {
                     })
                     .map_err(|error| anyhow!("{error}"))?;
             }
+            QuickJsMode::Error { propagates } => {
+                let result = self.context.with(|ctx| {
+                    let func = entry.restore(&ctx)?;
+                    func.call::<_, f64>(())
+                });
+                match result {
+                    Ok(value) => {
+                        if propagates {
+                            bail!("expected the script to throw");
+                        }
+                        std::hint::black_box(value);
+                    }
+                    Err(_) if propagates => {}
+                    Err(error) => return Err(anyhow!("{error}")),
+                }
+            }
         }
         Ok(())
     }
@@ -146,6 +166,22 @@ impl InteropEngine for QuickJsInterop {
                     .map_err(|error| anyhow!("{error}"))?;
                 Ok(Value::Int(sum))
             }
+            QuickJsMode::Error { propagates } => {
+                let result = self.context.with(|ctx| {
+                    let func = entry.restore(&ctx)?;
+                    func.call::<_, f64>(())
+                });
+                match result {
+                    Ok(value) => {
+                        if propagates {
+                            bail!("expected the script to throw");
+                        }
+                        number_value(self.result, value)
+                    }
+                    Err(_) if propagates => Ok(Value::Int(1)),
+                    Err(error) => Err(anyhow!("{error}")),
+                }
+            }
         }
     }
 }
@@ -189,6 +225,12 @@ fn register_host_functions(ctx: &Ctx<'_>) -> JsResult<()> {
     })?
     .with_name("interop_callback")?;
     globals.set("interop_callback", callback)?;
+
+    let fail = Function::new(ctx.clone(), |ctx: Ctx<'_>| -> JsResult<f64> {
+        Err(rquickjs::Exception::throw_message(&ctx, host::HOST_ERROR))
+    })?
+    .with_name("interop_fail")?;
+    globals.set("interop_fail", fail)?;
 
     Ok(())
 }

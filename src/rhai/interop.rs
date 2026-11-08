@@ -11,6 +11,7 @@ enum RhaiMode {
         callback: rhai::FnPtr,
         iterations: usize,
     },
+    Error { propagates: bool },
 }
 
 pub struct RhaiInterop {
@@ -26,7 +27,10 @@ impl InteropEngine for RhaiInterop {
     fn setup(case: &InteropCase) -> Result<Option<Self>> {
         if !matches!(
             case.op,
-            InteropOp::Call | InteropOp::CallIn { .. } | InteropOp::Callback { .. }
+            InteropOp::Call
+                | InteropOp::CallIn { .. }
+                | InteropOp::Callback { .. }
+                | InteropOp::Error(_)
         ) {
             return Ok(None);
         }
@@ -57,6 +61,9 @@ impl InteropEngine for RhaiInterop {
                     iterations,
                 }
             }
+            InteropOp::Error(op) => RhaiMode::Error {
+                propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
+            },
             _ => return Ok(None),
         };
 
@@ -116,6 +123,20 @@ impl InteropEngine for RhaiInterop {
                 }
                 std::hint::black_box(sum);
             }
+            RhaiMode::Error { propagates } => {
+                let result: Result<i64, _> =
+                    self.engine.call_fn(&mut self.scope, &self.ast, self.entry, ());
+                match result {
+                    Ok(value) => {
+                        if *propagates {
+                            bail!("expected the script to raise an error");
+                        }
+                        std::hint::black_box(value);
+                    }
+                    Err(_) if *propagates => {}
+                    Err(error) => return Err(anyhow!("{error}")),
+                }
+            }
         }
         Ok(())
     }
@@ -168,6 +189,20 @@ impl InteropEngine for RhaiInterop {
                 }
                 Ok(Value::Int(sum))
             }
+            RhaiMode::Error { propagates } => {
+                let result: Result<i64, _> =
+                    self.engine.call_fn(&mut self.scope, &self.ast, self.entry, ());
+                match result {
+                    Ok(value) => {
+                        if *propagates {
+                            bail!("expected the script to raise an error");
+                        }
+                        Ok(Value::Int(value))
+                    }
+                    Err(_) if *propagates => Ok(Value::Int(1)),
+                    Err(error) => Err(anyhow!("{error}")),
+                }
+            }
         }
     }
 }
@@ -185,5 +220,14 @@ fn register_host_functions(engine: &mut rhai::Engine) {
         .register_fn("interop_id_f64", |value: f64| host::id_f64(value))
         .register_fn("interop_strlen", |value: String| host::strlen(&value))
         .register_fn("interop_string_out", || host::string_out())
-        .register_fn("interop_callback", |value: i64| host::callback_value(value));
+        .register_fn("interop_callback", |value: i64| host::callback_value(value))
+        .register_fn(
+            "interop_fail",
+            || -> Result<i64, Box<rhai::EvalAltResult>> {
+                Err(Box::new(rhai::EvalAltResult::ErrorRuntime(
+                    host::HOST_ERROR.into(),
+                    rhai::Position::NONE,
+                )))
+            },
+        );
 }

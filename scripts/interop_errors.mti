@@ -1,0 +1,4 @@
+fn interop_fail() -> Result[int, str]
+
+on bench_error_caught() -> int
+on bench_error_propagates() -> Result[(), str]

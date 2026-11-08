@@ -103,6 +103,28 @@ pub fn native_callback() {
     keep(sum);
 }
 
+/// Expected number of errors caught by the script-side loop.
+pub fn expected_error_caught() -> i64 {
+    SMALL_ITERATIONS as i64
+}
+
+/// Native baseline for errors caught on the caller side.
+pub fn native_error_caught() {
+    let mut count = 0i64;
+    for _ in 0..SMALL_ITERATIONS {
+        if failing_call().is_err() {
+            count += 1;
+        }
+    }
+    keep(count);
+}
+
+/// Native baseline for an error propagating to the caller.
+pub fn native_error_propagates() {
+    let result = failing_call();
+    keep(result.is_err());
+}
+
 #[inline(never)]
 pub fn failing_call() -> Result<i64, String> {
     Err(HOST_ERROR.to_string())

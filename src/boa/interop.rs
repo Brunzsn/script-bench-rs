@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Result};
 use boa_engine::{
-    js_string, JsString, JsValue, NativeFunction, Source,
+    js_string, JsNativeError, JsString, JsValue, NativeFunction, Source,
 };
 
 use crate::harness::{number_value, read_script, ResultKind, Value};
@@ -11,6 +11,7 @@ enum BoaMode {
     Call,
     CallIn { iterations: usize },
     Callback { iterations: usize },
+    Error { propagates: bool },
 }
 
 pub struct BoaInterop {
@@ -36,6 +37,9 @@ impl InteropEngine for BoaInterop {
             InteropOp::Call => BoaMode::Call,
             InteropOp::CallIn { iterations } => BoaMode::CallIn { iterations },
             InteropOp::Callback { iterations } => BoaMode::Callback { iterations },
+            InteropOp::Error(op) => BoaMode::Error {
+                propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
+            },
             _ => return Ok(None),
         };
         let Some(script_path) = case.scripts.js else {
@@ -100,6 +104,19 @@ impl InteropEngine for BoaInterop {
                 }
                 std::hint::black_box(sum);
             }
+            BoaMode::Error { propagates } => match self.call(&[]) {
+                Ok(value) => {
+                    if propagates {
+                        bail!("expected the script to raise an error");
+                    }
+                    std::hint::black_box(value);
+                }
+                Err(error) => {
+                    if !propagates {
+                        return Err(error);
+                    }
+                }
+            },
         }
         Ok(())
     }
@@ -134,6 +151,24 @@ impl InteropEngine for BoaInterop {
                 }
                 Ok(Value::Int(sum))
             }
+            BoaMode::Error { propagates } => match self.call(&[]) {
+                Ok(value) => {
+                    if propagates {
+                        bail!("expected the script to raise an error");
+                    }
+                    let number = value
+                        .to_number(&mut self.context)
+                        .map_err(|error| anyhow!("{error}"))?;
+                    number_value(self.result, number)
+                }
+                Err(error) => {
+                    if propagates {
+                        Ok(Value::Int(1))
+                    } else {
+                        Err(error)
+                    }
+                }
+            },
         }
     }
 }
@@ -210,6 +245,15 @@ fn register_host_functions(context: &mut boa_engine::Context) -> Result<()> {
         NativeFunction::from_fn_ptr(|_this, args, ctx| {
             let value = args[0].to_number(ctx)? as i64;
             Ok(JsValue::from(host::callback_value(value)))
+        }),
+    )?;
+    register(
+        "interop_fail",
+        0,
+        NativeFunction::from_fn_ptr(|_this, _args, _ctx| {
+            Err(JsNativeError::typ()
+                .with_message(host::HOST_ERROR)
+                .into())
         }),
     )?;
 

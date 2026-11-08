@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use mlua::{Function, Lua};
 
 use crate::harness::{number_value, read_script, ResultKind, Value};
@@ -9,6 +9,7 @@ enum MluaMode {
     Call,
     CallIn { iterations: usize },
     Callback { iterations: usize },
+    Error { propagates: bool },
 }
 
 pub struct MluaInterop {
@@ -25,6 +26,9 @@ impl InteropEngine for MluaInterop {
             InteropOp::Call => MluaMode::Call,
             InteropOp::CallIn { iterations } => MluaMode::CallIn { iterations },
             InteropOp::Callback { iterations } => MluaMode::Callback { iterations },
+            InteropOp::Error(op) => MluaMode::Error {
+                propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
+            },
             _ => return Ok(None),
         };
         let is_callback = matches!(mode, MluaMode::Callback { .. });
@@ -93,6 +97,19 @@ impl InteropEngine for MluaInterop {
                 }
                 std::hint::black_box(sum);
             }
+            MluaMode::Error { propagates } => {
+                let result = self.entry.call::<f64>(());
+                match result {
+                    Ok(value) => {
+                        if propagates {
+                            bail!("expected the script to raise an error");
+                        }
+                        std::hint::black_box(value);
+                    }
+                    Err(_) if propagates => {}
+                    Err(error) => return Err(anyhow!("{error}")),
+                }
+            }
         }
         Ok(())
     }
@@ -127,6 +144,19 @@ impl InteropEngine for MluaInterop {
                     sum = sum.wrapping_add(value);
                 }
                 Ok(Value::Int(sum))
+            }
+            MluaMode::Error { propagates } => {
+                let result = self.entry.call::<f64>(());
+                match result {
+                    Ok(value) => {
+                        if propagates {
+                            bail!("expected the script to raise an error");
+                        }
+                        number_value(self.result, value)
+                    }
+                    Err(_) if propagates => Ok(Value::Int(1)),
+                    Err(error) => Err(anyhow!("{error}")),
+                }
             }
         }
     }
@@ -180,6 +210,14 @@ fn register_host_functions(lua: &Lua) -> Result<()> {
         .set(
             "interop_callback",
             Function::wrap_raw(|value: i64| host::callback_value(value)),
+        )
+        .map_err(|error| anyhow!("{error}"))?;
+    globals
+        .set(
+            "interop_fail",
+            Function::wrap(|| -> mlua::Result<i64> {
+                Err(mlua::Error::RuntimeError(host::HOST_ERROR.into()))
+            }),
         )
         .map_err(|error| anyhow!("{error}"))?;
 

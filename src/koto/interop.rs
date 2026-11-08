@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail, Result};
-use koto::prelude::*;
+use koto::{prelude::*, runtime};
 
 use crate::harness::{number_value, read_script, ResultKind, Value};
 use crate::interop::host;
@@ -9,6 +9,7 @@ enum KotoMode {
     Call,
     CallIn { iterations: usize },
     Callback { iterations: usize },
+    Error { propagates: bool },
 }
 
 pub struct KotoInterop {
@@ -24,6 +25,9 @@ impl InteropEngine for KotoInterop {
             InteropOp::Call => KotoMode::Call,
             InteropOp::CallIn { iterations } => KotoMode::CallIn { iterations },
             InteropOp::Callback { iterations } => KotoMode::Callback { iterations },
+            InteropOp::Error(op) => KotoMode::Error {
+                propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
+            },
             _ => return Ok(None),
         };
         let Some(script_path) = case.scripts.koto else {
@@ -97,6 +101,19 @@ impl InteropEngine for KotoInterop {
                 }
                 std::hint::black_box(sum);
             }
+            KotoMode::Error { propagates } => {
+                let result = self.engine.call_function(self.entry.clone(), &[]);
+                match result {
+                    Ok(value) => {
+                        if propagates {
+                            bail!("expected the script to raise an error");
+                        }
+                        std::hint::black_box(value);
+                    }
+                    Err(_) if propagates => {}
+                    Err(error) => return Err(anyhow!("{error}")),
+                }
+            }
         }
         Ok(())
     }
@@ -142,6 +159,22 @@ impl InteropEngine for KotoInterop {
                     sum = sum.wrapping_add(f64::from(number) as i64);
                 }
                 Ok(Value::Int(sum))
+            }
+            KotoMode::Error { propagates } => {
+                let result = self.engine.call_function(self.entry.clone(), &[]);
+                match result {
+                    Ok(value) => {
+                        if propagates {
+                            bail!("expected the script to raise an error");
+                        }
+                        let KValue::Number(number) = value else {
+                            bail!("interop error case did not return a number");
+                        };
+                        number_value(self.result, f64::from(number))
+                    }
+                    Err(_) if propagates => Ok(Value::Int(1)),
+                    Err(error) => Err(anyhow!("{error}")),
+                }
             }
         }
     }
@@ -204,5 +237,10 @@ fn register_host_functions(prelude: &koto::runtime::KMap) {
     prelude.add_fn("interop_callback", |ctx| match ctx.args() {
         [KValue::Number(value)] => Ok(host::callback_value(i64::from(value)).into()),
         unexpected => unexpected_args("one number", unexpected),
+    });
+
+    prelude.add_fn("interop_fail", |ctx| match ctx.args() {
+        [] => runtime::runtime_error!("{}", host::HOST_ERROR),
+        unexpected => unexpected_args("no arguments", unexpected),
     });
 }

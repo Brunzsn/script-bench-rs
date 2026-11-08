@@ -1,0 +1,11 @@
+export bench_error_caught = ||
+    count = 0
+    for _ in 0..10_000
+        try
+            interop_fail()
+        catch _
+            count += 1
+    count
+
+export bench_error_propagates = ||
+    interop_fail()

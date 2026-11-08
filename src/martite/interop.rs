@@ -12,6 +12,7 @@ enum MartiteMode {
     Call,
     CallIn { iterations: usize },
     Callback { iterations: usize },
+    Error { propagates: bool },
 }
 
 pub struct MartiteInterop {
@@ -27,6 +28,9 @@ impl InteropEngine for MartiteInterop {
             InteropOp::Call => MartiteMode::Call,
             InteropOp::CallIn { iterations } => MartiteMode::CallIn { iterations },
             InteropOp::Callback { iterations } => MartiteMode::Callback { iterations },
+            InteropOp::Error(op) => MartiteMode::Error {
+                propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
+            },
             _ => return Ok(None),
         };
         let (Some(script_path), Some(interface_path)) = (
@@ -118,6 +122,22 @@ impl InteropEngine for MartiteInterop {
                 }
                 std::hint::black_box(sum);
             }
+            MartiteMode::Error { propagates } => {
+                let outcome = self
+                    .instance
+                    .call(self.entry, Vec::new())
+                    .map_err(|trap| {
+                        anyhow!("Martite interop failed: {}", trap.panic_message())
+                    })?;
+                match outcome {
+                    Outcome::Handled(Value::Result(Err(_))) if propagates => {}
+                    Outcome::Handled(Value::Int(value)) if !propagates => {
+                        std::hint::black_box(value);
+                    }
+                    Outcome::Handled(_) => bail!("unexpected error-case outcome"),
+                    Outcome::NoHandler => bail!("Martite plugin has no `{}` handler", self.entry),
+                }
+            }
         }
         Ok(())
     }
@@ -181,6 +201,24 @@ impl InteropEngine for MartiteInterop {
                     sum = sum.wrapping_add(value);
                 }
                 Ok(BenchValue::Int(sum))
+            }
+            MartiteMode::Error { propagates } => {
+                let outcome = self
+                    .instance
+                    .call(self.entry, Vec::new())
+                    .map_err(|trap| {
+                        anyhow!("Martite interop failed: {}", trap.panic_message())
+                    })?;
+                match outcome {
+                    Outcome::Handled(Value::Result(Err(_))) if propagates => {
+                        Ok(BenchValue::Int(1))
+                    }
+                    Outcome::Handled(Value::Int(value)) if !propagates => {
+                        Ok(BenchValue::Int(value))
+                    }
+                    Outcome::Handled(_) => bail!("unexpected error-case outcome"),
+                    Outcome::NoHandler => bail!("Martite plugin has no `{}` handler", self.entry),
+                }
             }
         }
     }
@@ -271,6 +309,20 @@ fn register_host_functions(engine: &mut martite::Engine) {
             Ok(Value::Int(host::callback_value(
                 args[0].as_int().unwrap_or_default(),
             )))
+        },
+    );
+
+    engine.host_fn(
+        "bench.data.interop_fail",
+        HostSignature::new(
+            vec![],
+            HostType::Result(
+                Box::new(HostType::Int),
+                Box::new(HostType::Str),
+            ),
+        ),
+        |_cx, _args| {
+            Ok(Value::Result(Err(Box::new(Value::str(host::HOST_ERROR)))))
         },
     );
 }

@@ -12,6 +12,7 @@ use crate::harness::{ResultKind, Scripts, Value};
 pub mod call_in;
 pub mod callbacks;
 pub mod calls;
+pub mod errors;
 pub mod host;
 
 /// A bulk-data element type.
@@ -175,4 +176,6 @@ pub static INTEROP_CASES: &[InteropCase] = &[
     calls::CALL_STRING_OUT,
     call_in::CALL_IN,
     callbacks::CALLBACK,
+    errors::ERROR_CAUGHT,
+    errors::ERROR_PROPAGATES,
 ];
