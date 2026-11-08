@@ -334,14 +334,25 @@ impl InteropEngine for MluaInterop {
                 }
             }
             MluaMode::SerdeToScript => {
-                let table = self.serde_table()?;
-                let result: f64 = self.entry.call(table).map_err(|error| anyhow!("{error}"))?;
-                std::hint::black_box(result);
+                let mut sum = 0i64;
+                for _ in 0..host::SERDE_ITERATIONS {
+                    let table = self.serde_table()?;
+                    let result: f64 = self
+                        .entry
+                        .call(table)
+                        .map_err(|error| anyhow!("{error}"))?;
+                    sum = sum.wrapping_add(result as i64);
+                }
+                std::hint::black_box(sum);
             }
             MluaMode::SerdeFromScript => {
-                let table: Table = self.entry.call(()).map_err(|error| anyhow!("{error}"))?;
-                let checksum = self.serde_checksum(table)?;
-                std::hint::black_box(checksum);
+                let mut sum = 0i64;
+                for _ in 0..host::SERDE_ITERATIONS {
+                    let table: Table =
+                        self.entry.call(()).map_err(|error| anyhow!("{error}"))?;
+                    sum = sum.wrapping_add(self.serde_checksum(table)?);
+                }
+                std::hint::black_box(sum);
             }
             MluaMode::Error { propagates } => {
                 let result = self.entry.call::<f64>(());
@@ -457,13 +468,25 @@ impl InteropEngine for MluaInterop {
                 }
             }
             MluaMode::SerdeToScript => {
-                let table = self.serde_table()?;
-                let result: f64 = self.entry.call(table).map_err(|error| anyhow!("{error}"))?;
-                number_value(self.result, result)
+                let mut sum = 0i64;
+                for _ in 0..host::SERDE_ITERATIONS {
+                    let table = self.serde_table()?;
+                    let result: f64 = self
+                        .entry
+                        .call(table)
+                        .map_err(|error| anyhow!("{error}"))?;
+                    sum = sum.wrapping_add(result as i64);
+                }
+                Ok(Value::Int(sum))
             }
             MluaMode::SerdeFromScript => {
-                let table: Table = self.entry.call(()).map_err(|error| anyhow!("{error}"))?;
-                Ok(Value::Int(self.serde_checksum(table)?))
+                let mut sum = 0i64;
+                for _ in 0..host::SERDE_ITERATIONS {
+                    let table: Table =
+                        self.entry.call(()).map_err(|error| anyhow!("{error}"))?;
+                    sum = sum.wrapping_add(self.serde_checksum(table)?);
+                }
+                Ok(Value::Int(sum))
             }
             MluaMode::Error { propagates } => {
                 let result = self.entry.call::<f64>(());

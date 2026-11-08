@@ -357,14 +357,24 @@ impl InteropEngine for BoaInterop {
                 std::hint::black_box(value);
             }
             BoaMode::SerdeToScript => {
-                let object = self.serde_object()?;
-                let value = self.call(&[object])?;
-                std::hint::black_box(value);
+                let mut sum = 0i64;
+                for _ in 0..host::SERDE_ITERATIONS {
+                    let object = self.serde_object()?;
+                    let value = self.call(&[object])?;
+                    let number = value
+                        .to_number(&mut self.context)
+                        .map_err(|error| anyhow!("{error}"))?;
+                    sum = sum.wrapping_add(number as i64);
+                }
+                std::hint::black_box(sum);
             }
             BoaMode::SerdeFromScript => {
-                let value = self.call(&[])?;
-                let checksum = self.serde_checksum(&value)?;
-                std::hint::black_box(checksum);
+                let mut sum = 0i64;
+                for _ in 0..host::SERDE_ITERATIONS {
+                    let value = self.call(&[])?;
+                    sum = sum.wrapping_add(self.serde_checksum(&value)?);
+                }
+                std::hint::black_box(sum);
             }
             BoaMode::Error { propagates } => match self.call(&[]) {
                 Ok(value) => {
@@ -479,16 +489,24 @@ impl InteropEngine for BoaInterop {
                 number_value(self.result, number)
             }
             BoaMode::SerdeToScript => {
-                let object = self.serde_object()?;
-                let value = self.call(&[object])?;
-                let number = value
-                    .to_number(&mut self.context)
-                    .map_err(|error| anyhow!("{error}"))?;
-                number_value(self.result, number)
+                let mut sum = 0i64;
+                for _ in 0..host::SERDE_ITERATIONS {
+                    let object = self.serde_object()?;
+                    let value = self.call(&[object])?;
+                    let number = value
+                        .to_number(&mut self.context)
+                        .map_err(|error| anyhow!("{error}"))?;
+                    sum = sum.wrapping_add(number as i64);
+                }
+                Ok(Value::Int(sum))
             }
             BoaMode::SerdeFromScript => {
-                let value = self.call(&[])?;
-                Ok(Value::Int(self.serde_checksum(&value)?))
+                let mut sum = 0i64;
+                for _ in 0..host::SERDE_ITERATIONS {
+                    let value = self.call(&[])?;
+                    sum = sum.wrapping_add(self.serde_checksum(&value)?);
+                }
+                Ok(Value::Int(sum))
             }
             BoaMode::Error { propagates } => match self.call(&[]) {
                 Ok(value) => {

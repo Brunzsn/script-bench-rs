@@ -184,14 +184,17 @@ impl InteropEngine for MartiteInterop {
                 std::hint::black_box(outcome);
             }
             MartiteMode::SerdeFromScript => {
-                let outcome = self
-                    .instance
-                    .call(self.entry, Vec::new())
-                    .map_err(|trap| {
-                        anyhow!("Martite interop failed: {}", trap.panic_message())
-                    })?;
-                let checksum = martite_serde_checksum(outcome)?;
-                std::hint::black_box(checksum);
+                let mut sum = 0i64;
+                for _ in 0..host::SERDE_ITERATIONS {
+                    let outcome = self
+                        .instance
+                        .call(self.entry, Vec::new())
+                        .map_err(|trap| {
+                            anyhow!("Martite interop failed: {}", trap.panic_message())
+                        })?;
+                    sum = sum.wrapping_add(martite_serde_checksum(outcome)?);
+                }
+                std::hint::black_box(sum);
             }
             MartiteMode::Error { propagates } => {
                 let outcome = self
@@ -328,13 +331,17 @@ impl InteropEngine for MartiteInterop {
                 }
             }
             MartiteMode::SerdeFromScript => {
-                let outcome = self
-                    .instance
-                    .call(self.entry, Vec::new())
-                    .map_err(|trap| {
-                        anyhow!("Martite interop failed: {}", trap.panic_message())
-                    })?;
-                Ok(BenchValue::Int(martite_serde_checksum(outcome)?))
+                let mut sum = 0i64;
+                for _ in 0..host::SERDE_ITERATIONS {
+                    let outcome = self
+                        .instance
+                        .call(self.entry, Vec::new())
+                        .map_err(|trap| {
+                            anyhow!("Martite interop failed: {}", trap.panic_message())
+                        })?;
+                    sum = sum.wrapping_add(martite_serde_checksum(outcome)?);
+                }
+                Ok(BenchValue::Int(sum))
             }
             MartiteMode::Error { propagates } => {
                 let outcome = self

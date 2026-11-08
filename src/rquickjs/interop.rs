@@ -346,43 +346,53 @@ impl InteropEngine for QuickJsInterop {
                     .map_err(|error| anyhow!("{error}"))?;
             }
             QuickJsMode::SerdeToScript => {
-                self.context
+                let checksum = self
+                    .context
                     .with(|ctx| {
                         let func = entry.restore(&ctx)?;
-                        let child = Object::new(ctx.clone())?;
-                        child.set("id", host::SERDE_CHILD_ID)?;
-                        let values = Array::new(ctx.clone())?;
-                        for (index, value) in host::SERDE_VALUES.iter().enumerate() {
-                            values.set(index, *value)?;
+                        let mut sum = 0i64;
+                        for _ in 0..host::SERDE_ITERATIONS {
+                            let child = Object::new(ctx.clone())?;
+                            child.set("id", host::SERDE_CHILD_ID)?;
+                            let values = Array::new(ctx.clone())?;
+                            for (index, value) in host::SERDE_VALUES.iter().enumerate() {
+                                values.set(index, *value)?;
+                            }
+                            let object = Object::new(ctx.clone())?;
+                            object.set("id", host::SERDE_ID)?;
+                            object.set("name", host::SERDE_NAME)?;
+                            object.set("values", values)?;
+                            object.set("child", child)?;
+                            let result: f64 = func.call((object,))?;
+                            sum = sum.wrapping_add(result as i64);
                         }
-                        let object = Object::new(ctx.clone())?;
-                        object.set("id", host::SERDE_ID)?;
-                        object.set("name", host::SERDE_NAME)?;
-                        object.set("values", values)?;
-                        object.set("child", child)?;
-                        func.call::<_, f64>((object,))?;
-                        Ok::<(), rquickjs::Error>(())
+                        Ok::<i64, rquickjs::Error>(sum)
                     })
                     .map_err(|error| anyhow!("{error}"))?;
+                std::hint::black_box(checksum);
             }
             QuickJsMode::SerdeFromScript => {
                 let checksum = self
                     .context
                     .with(|ctx| {
                         let func = entry.restore(&ctx)?;
-                        let object: Object = func.call(())?;
-                        let id: f64 = object.get("id")?;
-                        let name: String = object.get("name")?;
-                        let values: Array = object.get("values")?;
-                        let mut sum = 0.0f64;
-                        for value in values.iter::<f64>() {
-                            sum += value?;
+                        let mut sum = 0i64;
+                        for _ in 0..host::SERDE_ITERATIONS {
+                            let object: Object = func.call(())?;
+                            let id: f64 = object.get("id")?;
+                            let name: String = object.get("name")?;
+                            let values: Array = object.get("values")?;
+                            let mut value_sum = 0.0f64;
+                            for value in values.iter::<f64>() {
+                                value_sum += value?;
+                            }
+                            let child: Object = object.get("child")?;
+                            let child_id: f64 = child.get("id")?;
+                            sum = sum.wrapping_add(
+                                id as i64 + name.len() as i64 + value_sum as i64 + child_id as i64,
+                            );
                         }
-                        let child: Object = object.get("child")?;
-                        let child_id: f64 = child.get("id")?;
-                        Ok::<i64, rquickjs::Error>(
-                            id as i64 + name.len() as i64 + sum as i64 + child_id as i64,
-                        )
+                        Ok::<i64, rquickjs::Error>(sum)
                     })
                     .map_err(|error| anyhow!("{error}"))?;
                 std::hint::black_box(checksum);
@@ -531,44 +541,53 @@ impl InteropEngine for QuickJsInterop {
                 number_value(self.result, sum)
             }
             QuickJsMode::SerdeToScript => {
-                let result = self
+                let checksum = self
                     .context
                     .with(|ctx| {
                         let func = entry.restore(&ctx)?;
-                        let child = Object::new(ctx.clone())?;
-                        child.set("id", host::SERDE_CHILD_ID)?;
-                        let values = Array::new(ctx.clone())?;
-                        for (index, value) in host::SERDE_VALUES.iter().enumerate() {
-                            values.set(index, *value)?;
+                        let mut sum = 0i64;
+                        for _ in 0..host::SERDE_ITERATIONS {
+                            let child = Object::new(ctx.clone())?;
+                            child.set("id", host::SERDE_CHILD_ID)?;
+                            let values = Array::new(ctx.clone())?;
+                            for (index, value) in host::SERDE_VALUES.iter().enumerate() {
+                                values.set(index, *value)?;
+                            }
+                            let object = Object::new(ctx.clone())?;
+                            object.set("id", host::SERDE_ID)?;
+                            object.set("name", host::SERDE_NAME)?;
+                            object.set("values", values)?;
+                            object.set("child", child)?;
+                            let result: f64 = func.call((object,))?;
+                            sum = sum.wrapping_add(result as i64);
                         }
-                        let object = Object::new(ctx.clone())?;
-                        object.set("id", host::SERDE_ID)?;
-                        object.set("name", host::SERDE_NAME)?;
-                        object.set("values", values)?;
-                        object.set("child", child)?;
-                        func.call::<_, f64>((object,))
+                        Ok::<i64, rquickjs::Error>(sum)
                     })
                     .map_err(|error| anyhow!("{error}"))?;
-                number_value(self.result, result)
+                Ok(Value::Int(checksum))
             }
             QuickJsMode::SerdeFromScript => {
                 let checksum = self
                     .context
                     .with(|ctx| {
                         let func = entry.restore(&ctx)?;
-                        let object: Object = func.call(())?;
-                        let id: f64 = object.get("id")?;
-                        let name: String = object.get("name")?;
-                        let values: Array = object.get("values")?;
-                        let mut sum = 0.0f64;
-                        for value in values.iter::<f64>() {
-                            sum += value?;
+                        let mut sum = 0i64;
+                        for _ in 0..host::SERDE_ITERATIONS {
+                            let object: Object = func.call(())?;
+                            let id: f64 = object.get("id")?;
+                            let name: String = object.get("name")?;
+                            let values: Array = object.get("values")?;
+                            let mut value_sum = 0.0f64;
+                            for value in values.iter::<f64>() {
+                                value_sum += value?;
+                            }
+                            let child: Object = object.get("child")?;
+                            let child_id: f64 = child.get("id")?;
+                            sum = sum.wrapping_add(
+                                id as i64 + name.len() as i64 + value_sum as i64 + child_id as i64,
+                            );
                         }
-                        let child: Object = object.get("child")?;
-                        let child_id: f64 = child.get("id")?;
-                        Ok::<i64, rquickjs::Error>(
-                            id as i64 + name.len() as i64 + sum as i64 + child_id as i64,
-                        )
+                        Ok::<i64, rquickjs::Error>(sum)
                     })
                     .map_err(|error| anyhow!("{error}"))?;
                 Ok(Value::Int(checksum))
