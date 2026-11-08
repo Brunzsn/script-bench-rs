@@ -34,12 +34,11 @@ impl<'js> JsClass<'js> for InteropData {
         let get = Function::new(ctx.clone(), |this: This<Self>| this.0 .0.get() as f64)?
             .with_name("get")?;
         proto.prop("get", get)?;
-        let value_get =
-            Function::new(ctx.clone(), |this: This<Self>| this.0 .0.get() as f64)?;
-        let value_set = Function::new(ctx.clone(), |this: This<Self>, value: f64| {
-            this.0 .0.set(value as i64)
-        })?;
-        proto.prop("value", Accessor::from(value_get).set(value_set))?;
+        proto.prop(
+            "value",
+            Accessor::from(|this: This<Self>| this.0 .0.get() as f64)
+                .set(|this: This<Self>, value: f64| this.0 .0.set(value as i64)),
+        )?;
         Ok(Some(proto))
     }
 
