@@ -5,7 +5,9 @@ use koto::{derive::*, prelude::*, runtime};
 
 use crate::harness::{number_value, read_script, ResultKind, Value};
 use crate::interop::host;
-use crate::interop::{InteropCase, InteropEngine, InteropOp};
+use crate::interop::{
+    BulkMode, BulkValue, Direction, InteropCase, InteropEngine, InteropOp,
+};
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, KotoCopy, KotoType)]
 pub struct InteropData(i64);
@@ -60,6 +62,8 @@ enum KotoMode {
     CallIn { iterations: usize },
     Callback { iterations: usize },
     Userdata,
+    BulkListIn { value: BulkValue, size: usize },
+    BulkListOut,
     Error { propagates: bool },
 }
 
@@ -77,6 +81,13 @@ impl InteropEngine for KotoInterop {
             InteropOp::CallIn { iterations } => KotoMode::CallIn { iterations },
             InteropOp::Callback { iterations } => KotoMode::Callback { iterations },
             InteropOp::Userdata(_) => KotoMode::Userdata,
+            InteropOp::Bulk(op) if op.mode == BulkMode::List => match op.direction {
+                Direction::In => KotoMode::BulkListIn {
+                    value: op.value,
+                    size: op.size,
+                },
+                Direction::Out => KotoMode::BulkListOut,
+            },
             InteropOp::Error(op) => KotoMode::Error {
                 propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
             },
@@ -160,6 +171,31 @@ impl InteropEngine for KotoInterop {
                     .map_err(|error| anyhow!("{error}"))?;
                 std::hint::black_box(value);
             }
+            KotoMode::BulkListIn { value, size } => {
+                let data = match value {
+                    BulkValue::F64 => host::bulk_f64_values(size)
+                        .into_iter()
+                        .map(KValue::from)
+                        .collect(),
+                    BulkValue::U8 => host::bulk_u8_values(size)
+                        .into_iter()
+                        .map(|value| KValue::from(i64::from(value)))
+                        .collect(),
+                };
+                let list = KValue::from(KList::with_data(data));
+                let result = self
+                    .engine
+                    .call_function(self.entry.clone(), &[list])
+                    .map_err(|error| anyhow!("{error}"))?;
+                std::hint::black_box(result);
+            }
+            KotoMode::BulkListOut => {
+                let result = self
+                    .engine
+                    .call_function(self.entry.clone(), &[])
+                    .map_err(|error| anyhow!("{error}"))?;
+                std::hint::black_box(result);
+            }
             KotoMode::Error { propagates } => {
                 let result = self.engine.call_function(self.entry.clone(), &[]);
                 match result {
@@ -226,6 +262,37 @@ impl InteropEngine for KotoInterop {
                     .map_err(|error| anyhow!("{error}"))?;
                 let KValue::Number(number) = value else {
                     bail!("interop userdata case did not return a number");
+                };
+                number_value(self.result, f64::from(number))
+            }
+            KotoMode::BulkListIn { value, size } => {
+                let data = match value {
+                    BulkValue::F64 => host::bulk_f64_values(size)
+                        .into_iter()
+                        .map(KValue::from)
+                        .collect(),
+                    BulkValue::U8 => host::bulk_u8_values(size)
+                        .into_iter()
+                        .map(|value| KValue::from(i64::from(value)))
+                        .collect(),
+                };
+                let list = KValue::from(KList::with_data(data));
+                let result = self
+                    .engine
+                    .call_function(self.entry.clone(), &[list])
+                    .map_err(|error| anyhow!("{error}"))?;
+                let KValue::Number(number) = result else {
+                    bail!("interop bulk case did not return a number");
+                };
+                number_value(self.result, f64::from(number))
+            }
+            KotoMode::BulkListOut => {
+                let result = self
+                    .engine
+                    .call_function(self.entry.clone(), &[])
+                    .map_err(|error| anyhow!("{error}"))?;
+                let KValue::Number(number) = result else {
+                    bail!("interop bulk case did not return a number");
                 };
                 number_value(self.result, f64::from(number))
             }
@@ -326,5 +393,31 @@ fn register_host_functions(prelude: &koto::runtime::KMap) {
     prelude.add_fn("RcData_new", |ctx| match ctx.args() {
         [KValue::Str(value)] => Ok(KObject::from(RcData(value.as_str().into())).into()),
         unexpected => unexpected_args("one string", unexpected),
+    });
+
+    prelude.add_fn("interop_sum_f64_list", |ctx| match ctx.args() {
+        [KValue::List(list)] => {
+            let mut sum = 0.0f64;
+            for value in list.data().iter() {
+                if let KValue::Number(number) = value {
+                    sum += f64::from(number);
+                }
+            }
+            Ok(sum.into())
+        }
+        unexpected => unexpected_args("one list", unexpected),
+    });
+
+    prelude.add_fn("interop_sum_u8_list", |ctx| match ctx.args() {
+        [KValue::List(list)] => {
+            let mut sum = 0.0f64;
+            for value in list.data().iter() {
+                if let KValue::Number(number) = value {
+                    sum += f64::from(number);
+                }
+            }
+            Ok(sum.into())
+        }
+        unexpected => unexpected_args("one list", unexpected),
     });
 }

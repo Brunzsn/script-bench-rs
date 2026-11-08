@@ -1,0 +1,35 @@
+export bench_bulk_f64_in_list = |values|
+    sum = 0.0
+    for value in values
+        sum += value
+    sum
+
+export bench_bulk_u8_in_list = |values|
+    sum = 0
+    for value in values
+        sum += value
+    sum
+
+f64_list_1k = []
+f64_list_100k = []
+f64_list_1m = []
+u8_list_1k = []
+u8_list_100k = []
+u8_list_1m = []
+
+for _ in 0..1_000
+    f64_list_1k.push 1.0
+    u8_list_1k.push 1
+for _ in 0..100_000
+    f64_list_100k.push 1.0
+    u8_list_100k.push 1
+for _ in 0..1_000_000
+    f64_list_1m.push 1.0
+    u8_list_1m.push 1
+
+export bench_bulk_f64_out_list_1k = || interop_sum_f64_list f64_list_1k
+export bench_bulk_f64_out_list_100k = || interop_sum_f64_list f64_list_100k
+export bench_bulk_f64_out_list_1m = || interop_sum_f64_list f64_list_1m
+export bench_bulk_u8_out_list_1k = || interop_sum_u8_list u8_list_1k
+export bench_bulk_u8_out_list_100k = || interop_sum_u8_list u8_list_100k
+export bench_bulk_u8_out_list_1m = || interop_sum_u8_list u8_list_1m

@@ -3,7 +3,9 @@ use martite::{HostSignature, HostType, Instance, Outcome, Plugin};
 
 use crate::harness::{read_script, ResultKind, Value as BenchValue};
 use crate::interop::host;
-use crate::interop::{InteropCase, InteropEngine, InteropOp};
+use crate::interop::{
+    BulkMode, BulkValue, Direction, InteropCase, InteropEngine, InteropOp,
+};
 use crate::martite::Value;
 
 use super::{LIMITS, MANIFEST};
@@ -13,6 +15,8 @@ enum MartiteMode {
     CallIn { iterations: usize },
     Callback { iterations: usize },
     Userdata,
+    BulkListIn { value: BulkValue, size: usize },
+    BulkListOut,
     Error { propagates: bool },
 }
 
@@ -30,6 +34,13 @@ impl InteropEngine for MartiteInterop {
             InteropOp::CallIn { iterations } => MartiteMode::CallIn { iterations },
             InteropOp::Callback { iterations } => MartiteMode::Callback { iterations },
             InteropOp::Userdata(_) => MartiteMode::Userdata,
+            InteropOp::Bulk(op) if op.mode == BulkMode::List => match op.direction {
+                Direction::In => MartiteMode::BulkListIn {
+                    value: op.value,
+                    size: op.size,
+                },
+                Direction::Out => MartiteMode::BulkListOut,
+            },
             InteropOp::Error(op) => MartiteMode::Error {
                 propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
             },
@@ -136,6 +147,38 @@ impl InteropEngine for MartiteInterop {
                 };
                 std::hint::black_box(value);
             }
+            MartiteMode::BulkListIn { value, size } => {
+                let list = match value {
+                    BulkValue::F64 => Value::list(
+                        host::bulk_f64_values(size)
+                            .into_iter()
+                            .map(Value::Float)
+                            .collect(),
+                    ),
+                    BulkValue::U8 => Value::list(
+                        host::bulk_u8_values(size)
+                            .into_iter()
+                            .map(|value| Value::Int(i64::from(value)))
+                            .collect(),
+                    ),
+                };
+                let outcome = self
+                    .instance
+                    .call(self.entry, vec![list])
+                    .map_err(|trap| {
+                        anyhow!("Martite interop failed: {}", trap.panic_message())
+                    })?;
+                std::hint::black_box(outcome);
+            }
+            MartiteMode::BulkListOut => {
+                let outcome = self
+                    .instance
+                    .call(self.entry, Vec::new())
+                    .map_err(|trap| {
+                        anyhow!("Martite interop failed: {}", trap.panic_message())
+                    })?;
+                std::hint::black_box(outcome);
+            }
             MartiteMode::Error { propagates } => {
                 let outcome = self
                     .instance
@@ -227,6 +270,48 @@ impl InteropEngine for MartiteInterop {
                     bail!("expected `{}` to return an int", self.entry);
                 };
                 Ok(BenchValue::Int(value))
+            }
+            MartiteMode::BulkListIn { value, size } => {
+                let list = match value {
+                    BulkValue::F64 => Value::list(
+                        host::bulk_f64_values(size)
+                            .into_iter()
+                            .map(Value::Float)
+                            .collect(),
+                    ),
+                    BulkValue::U8 => Value::list(
+                        host::bulk_u8_values(size)
+                            .into_iter()
+                            .map(|value| Value::Int(i64::from(value)))
+                            .collect(),
+                    ),
+                };
+                let outcome = self
+                    .instance
+                    .call(self.entry, vec![list])
+                    .map_err(|trap| {
+                        anyhow!("Martite interop failed: {}", trap.panic_message())
+                    })?;
+                match outcome {
+                    Outcome::Handled(Value::Float(value)) => Ok(BenchValue::Float(value)),
+                    Outcome::Handled(Value::Int(value)) => Ok(BenchValue::Int(value)),
+                    Outcome::Handled(_) => bail!("expected a numeric bulk result"),
+                    Outcome::NoHandler => bail!("Martite plugin has no `{}` handler", self.entry),
+                }
+            }
+            MartiteMode::BulkListOut => {
+                let outcome = self
+                    .instance
+                    .call(self.entry, Vec::new())
+                    .map_err(|trap| {
+                        anyhow!("Martite interop failed: {}", trap.panic_message())
+                    })?;
+                match outcome {
+                    Outcome::Handled(Value::Float(value)) => Ok(BenchValue::Float(value)),
+                    Outcome::Handled(Value::Int(value)) => Ok(BenchValue::Int(value)),
+                    Outcome::Handled(_) => bail!("expected a numeric bulk result"),
+                    Outcome::NoHandler => bail!("Martite plugin has no `{}` handler", self.entry),
+                }
             }
             MartiteMode::Error { propagates } => {
                 let outcome = self
@@ -335,6 +420,44 @@ fn register_host_functions(engine: &mut martite::Engine) {
             Ok(Value::Int(host::callback_value(
                 args[0].as_int().unwrap_or_default(),
             )))
+        },
+    );
+
+    engine.host_fn(
+        "bench.data.interop_sum_f64_list",
+        HostSignature::new(
+            vec![HostType::List(Box::new(HostType::Float))],
+            HostType::Float,
+        ),
+        |_cx, args| {
+            let mut sum = 0.0f64;
+            if let Value::List(values) = &args[0] {
+                for value in values.iter() {
+                    if let Value::Float(value) = value {
+                        sum += value;
+                    }
+                }
+            }
+            Ok(Value::Float(sum))
+        },
+    );
+
+    engine.host_fn(
+        "bench.data.interop_sum_int_list",
+        HostSignature::new(
+            vec![HostType::List(Box::new(HostType::Int))],
+            HostType::Int,
+        ),
+        |_cx, args| {
+            let mut sum = 0i64;
+            if let Value::List(values) = &args[0] {
+                for value in values.iter() {
+                    if let Value::Int(value) = value {
+                        sum += value;
+                    }
+                }
+            }
+            Ok(Value::Int(sum))
         },
     );
 

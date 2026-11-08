@@ -5,7 +5,9 @@ use anyhow::{anyhow, bail, Result};
 
 use crate::harness::{read_script, ResultKind, Value};
 use crate::interop::host;
-use crate::interop::{InteropCase, InteropEngine, InteropOp};
+use crate::interop::{
+    BulkMode, BulkValue, Direction, InteropCase, InteropEngine, InteropOp,
+};
 
 #[derive(Clone)]
 pub struct InteropData(Cell<i64>);
@@ -54,6 +56,8 @@ enum RhaiMode {
         iterations: usize,
     },
     Userdata,
+    BulkListIn { value: BulkValue, size: usize },
+    BulkListOut,
     Error { propagates: bool },
 }
 
@@ -74,6 +78,7 @@ impl InteropEngine for RhaiInterop {
                 | InteropOp::CallIn { .. }
                 | InteropOp::Callback { .. }
                 | InteropOp::Userdata(_)
+                | InteropOp::Bulk(_)
                 | InteropOp::Error(_)
         ) {
             return Ok(None);
@@ -109,6 +114,13 @@ impl InteropEngine for RhaiInterop {
                 }
             }
             InteropOp::Userdata(_) => RhaiMode::Userdata,
+            InteropOp::Bulk(op) if op.mode == BulkMode::List => match op.direction {
+                Direction::In => RhaiMode::BulkListIn {
+                    value: op.value,
+                    size: op.size,
+                },
+                Direction::Out => RhaiMode::BulkListOut,
+            },
             InteropOp::Error(op) => RhaiMode::Error {
                 propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
             },
@@ -177,6 +189,33 @@ impl InteropEngine for RhaiInterop {
                     .call_fn(&mut self.scope, &self.ast, self.entry, ())
                     .map_err(|error| anyhow!("{error}"))?;
                 std::hint::black_box(value);
+            }
+            RhaiMode::BulkListIn { value, size } => {
+                let mut values = rhai::Array::new();
+                match value {
+                    BulkValue::F64 => {
+                        for value in host::bulk_f64_values(size) {
+                            values.push(rhai::Dynamic::from(value));
+                        }
+                    }
+                    BulkValue::U8 => {
+                        for value in host::bulk_u8_values(size) {
+                            values.push(rhai::Dynamic::from(i64::from(value)));
+                        }
+                    }
+                }
+                let result: f64 = self
+                    .engine
+                    .call_fn(&mut self.scope, &self.ast, self.entry, (values,))
+                    .map_err(|error| anyhow!("{error}"))?;
+                std::hint::black_box(result);
+            }
+            RhaiMode::BulkListOut => {
+                let result: f64 = self
+                    .engine
+                    .call_fn(&mut self.scope, &self.ast, self.entry, ())
+                    .map_err(|error| anyhow!("{error}"))?;
+                std::hint::black_box(result);
             }
             RhaiMode::Error { propagates } => {
                 let result: Result<i64, _> =
@@ -251,6 +290,33 @@ impl InteropEngine for RhaiInterop {
                     .map_err(|error| anyhow!("{error}"))?;
                 Ok(Value::Int(value))
             }
+            RhaiMode::BulkListIn { value, size } => {
+                let mut values = rhai::Array::new();
+                match value {
+                    BulkValue::F64 => {
+                        for value in host::bulk_f64_values(size) {
+                            values.push(rhai::Dynamic::from(value));
+                        }
+                    }
+                    BulkValue::U8 => {
+                        for value in host::bulk_u8_values(size) {
+                            values.push(rhai::Dynamic::from(i64::from(value)));
+                        }
+                    }
+                }
+                let result: f64 = self
+                    .engine
+                    .call_fn(&mut self.scope, &self.ast, self.entry, (values,))
+                    .map_err(|error| anyhow!("{error}"))?;
+                Ok(Value::Float(result))
+            }
+            RhaiMode::BulkListOut => {
+                let result: f64 = self
+                    .engine
+                    .call_fn(&mut self.scope, &self.ast, self.entry, ())
+                    .map_err(|error| anyhow!("{error}"))?;
+                Ok(Value::Float(result))
+            }
             RhaiMode::Error { propagates } => {
                 let result: Result<i64, _> =
                     self.engine.call_fn(&mut self.scope, &self.ast, self.entry, ());
@@ -295,6 +361,18 @@ fn register_host_functions(engine: &mut rhai::Engine) {
         .register_fn("interop_strlen", |value: String| host::strlen(&value))
         .register_fn("interop_string_out", || host::string_out())
         .register_fn("interop_callback", |value: i64| host::callback_value(value))
+        .register_fn("interop_sum_f64_list", |values: rhai::Array| -> f64 {
+            values
+                .iter()
+                .map(|value| value.as_float().unwrap_or(0.0))
+                .sum()
+        })
+        .register_fn("interop_sum_u8_list", |values: rhai::Array| -> f64 {
+            values
+                .iter()
+                .map(|value| value.as_int().unwrap_or(0) as f64)
+                .sum()
+        })
         .register_fn(
             "interop_fail",
             || -> Result<i64, Box<rhai::EvalAltResult>> {

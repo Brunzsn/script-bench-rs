@@ -3,8 +3,10 @@ use std::rc::Rc;
 
 use anyhow::{anyhow, bail, Result};
 use mlua::{
-    Function, Lua, UserData, UserDataFields, UserDataMethods, UserDataRegistry,
+    Function, Lua, Table, UserData, UserDataFields, UserDataMethods, UserDataRegistry,
 };
+
+use crate::interop::{BulkMode, BulkValue, Direction};
 
 use crate::harness::{number_value, read_script, ResultKind, Value};
 use crate::interop::host;
@@ -48,6 +50,8 @@ enum MluaMode {
     CallIn { iterations: usize },
     Callback { iterations: usize },
     Userdata,
+    BulkListIn { value: BulkValue, size: usize },
+    BulkListOut,
     Error { propagates: bool },
 }
 
@@ -66,6 +70,13 @@ impl InteropEngine for MluaInterop {
             InteropOp::CallIn { iterations } => MluaMode::CallIn { iterations },
             InteropOp::Callback { iterations } => MluaMode::Callback { iterations },
             InteropOp::Userdata(_) => MluaMode::Userdata,
+            InteropOp::Bulk(op) if op.mode == BulkMode::List => match op.direction {
+                Direction::In => MluaMode::BulkListIn {
+                    value: op.value,
+                    size: op.size,
+                },
+                Direction::Out => MluaMode::BulkListOut,
+            },
             InteropOp::Error(op) => MluaMode::Error {
                 propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
             },
@@ -163,6 +174,44 @@ impl InteropEngine for MluaInterop {
                 let value: f64 = self.entry.call(()).map_err(|error| anyhow!("{error}"))?;
                 std::hint::black_box(value);
             }
+            MluaMode::BulkListIn { value, size } => {
+                let table = self
+                    ._lua
+                    .create_table()
+                    .map_err(|error| anyhow!("{error}"))?;
+                match value {
+                    BulkValue::F64 => {
+                        for (index, value) in
+                            host::bulk_f64_values(size).into_iter().enumerate()
+                        {
+                            table
+                                .set(index + 1, value)
+                                .map_err(|error| anyhow!("{error}"))?;
+                        }
+                    }
+                    BulkValue::U8 => {
+                        for (index, value) in
+                            host::bulk_u8_values(size).into_iter().enumerate()
+                        {
+                            table
+                                .set(index + 1, value)
+                                .map_err(|error| anyhow!("{error}"))?;
+                        }
+                    }
+                }
+                let result: f64 = self
+                    .entry
+                    .call(table)
+                    .map_err(|error| anyhow!("{error}"))?;
+                std::hint::black_box(result);
+            }
+            MluaMode::BulkListOut => {
+                let result: f64 = self
+                    .entry
+                    .call(())
+                    .map_err(|error| anyhow!("{error}"))?;
+                std::hint::black_box(result);
+            }
             MluaMode::Error { propagates } => {
                 let result = self.entry.call::<f64>(());
                 match result {
@@ -214,6 +263,44 @@ impl InteropEngine for MluaInterop {
             MluaMode::Userdata => {
                 let value: f64 = self.entry.call(()).map_err(|error| anyhow!("{error}"))?;
                 number_value(self.result, value)
+            }
+            MluaMode::BulkListIn { value, size } => {
+                let table = self
+                    ._lua
+                    .create_table()
+                    .map_err(|error| anyhow!("{error}"))?;
+                match value {
+                    BulkValue::F64 => {
+                        for (index, value) in
+                            host::bulk_f64_values(size).into_iter().enumerate()
+                        {
+                            table
+                                .set(index + 1, value)
+                                .map_err(|error| anyhow!("{error}"))?;
+                        }
+                    }
+                    BulkValue::U8 => {
+                        for (index, value) in
+                            host::bulk_u8_values(size).into_iter().enumerate()
+                        {
+                            table
+                                .set(index + 1, value)
+                                .map_err(|error| anyhow!("{error}"))?;
+                        }
+                    }
+                }
+                let result: f64 = self
+                    .entry
+                    .call(table)
+                    .map_err(|error| anyhow!("{error}"))?;
+                number_value(self.result, result)
+            }
+            MluaMode::BulkListOut => {
+                let result: f64 = self
+                    .entry
+                    .call(())
+                    .map_err(|error| anyhow!("{error}"))?;
+                number_value(self.result, result)
             }
             MluaMode::Error { propagates } => {
                 let result = self.entry.call::<f64>(());
@@ -280,6 +367,28 @@ fn register_host_functions(lua: &Lua) -> Result<()> {
         .set(
             "interop_callback",
             Function::wrap_raw(|value: i64| host::callback_value(value)),
+        )
+        .map_err(|error| anyhow!("{error}"))?;
+    globals
+        .set(
+            "interop_sum_f64_list",
+            Function::wrap_raw(|table: Table| -> f64 {
+                table
+                    .sequence_values::<f64>()
+                    .map(|value| value.unwrap_or(0.0))
+                    .sum()
+            }),
+        )
+        .map_err(|error| anyhow!("{error}"))?;
+    globals
+        .set(
+            "interop_sum_u8_list",
+            Function::wrap_raw(|table: Table| -> f64 {
+                table
+                    .sequence_values::<f64>()
+                    .map(|value| value.unwrap_or(0.0))
+                    .sum()
+            }),
         )
         .map_err(|error| anyhow!("{error}"))?;
     globals

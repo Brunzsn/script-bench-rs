@@ -6,9 +6,11 @@ use rquickjs::class::{Class, JsClass, Readable, Trace, Tracer};
 use rquickjs::function::{Constructor, This};
 use rquickjs::object::Accessor;
 use rquickjs::{
-    Context, Ctx, FromJs, Function, IntoJs, JsLifetime, Persistent, Result as JsResult, Runtime,
-    Value as JsValue,
+    Array, Context, Ctx, FromJs, Function, IntoJs, JsLifetime, Persistent, Result as JsResult,
+    Runtime, Value as JsValue,
 };
+
+use crate::interop::{BulkMode, BulkValue, Direction};
 
 use crate::harness::{number_value, read_script, ResultKind, Value};
 use crate::interop::host;
@@ -145,6 +147,8 @@ enum QuickJsMode {
     CallIn { iterations: usize },
     Callback { iterations: usize },
     Userdata,
+    BulkListIn { value: BulkValue, size: usize },
+    BulkListOut,
     Error { propagates: bool },
 }
 
@@ -164,6 +168,13 @@ impl InteropEngine for QuickJsInterop {
             InteropOp::CallIn { iterations } => QuickJsMode::CallIn { iterations },
             InteropOp::Callback { iterations } => QuickJsMode::Callback { iterations },
             InteropOp::Userdata(_) => QuickJsMode::Userdata,
+            InteropOp::Bulk(op) if op.mode == BulkMode::List => match op.direction {
+                Direction::In => QuickJsMode::BulkListIn {
+                    value: op.value,
+                    size: op.size,
+                },
+                Direction::Out => QuickJsMode::BulkListOut,
+            },
             InteropOp::Error(op) => QuickJsMode::Error {
                 propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
             },
@@ -255,6 +266,40 @@ impl InteropEngine for QuickJsInterop {
                     })
                     .map_err(|error| anyhow!("{error}"))?;
             }
+            QuickJsMode::BulkListIn { value, size } => {
+                self.context
+                    .with(|ctx| {
+                        let func = entry.restore(&ctx)?;
+                        let array = Array::new(ctx.clone())?;
+                        match value {
+                            BulkValue::F64 => {
+                                for (index, value) in
+                                    host::bulk_f64_values(size).into_iter().enumerate()
+                                {
+                                    array.set(index, value)?;
+                                }
+                            }
+                            BulkValue::U8 => {
+                                for (index, value) in
+                                    host::bulk_u8_values(size).into_iter().enumerate()
+                                {
+                                    array.set(index, value)?;
+                                }
+                            }
+                        }
+                        func.call::<_, f64>((array,))?;
+                        Ok::<(), rquickjs::Error>(())
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
+            }
+            QuickJsMode::BulkListOut => {
+                self.context
+                    .with(|ctx| {
+                        let func = entry.restore(&ctx)?;
+                        func.call::<_, f64>(())
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
+            }
             QuickJsMode::Error { propagates } => {
                 let result = self.context.with(|ctx| {
                     let func = entry.restore(&ctx)?;
@@ -328,6 +373,43 @@ impl InteropEngine for QuickJsInterop {
                     .map_err(|error| anyhow!("{error}"))?;
                 number_value(self.result, value)
             }
+            QuickJsMode::BulkListIn { value, size } => {
+                let sum = self
+                    .context
+                    .with(|ctx| {
+                        let func = entry.restore(&ctx)?;
+                        let array = Array::new(ctx.clone())?;
+                        match value {
+                            BulkValue::F64 => {
+                                for (index, value) in
+                                    host::bulk_f64_values(size).into_iter().enumerate()
+                                {
+                                    array.set(index, value)?;
+                                }
+                            }
+                            BulkValue::U8 => {
+                                for (index, value) in
+                                    host::bulk_u8_values(size).into_iter().enumerate()
+                                {
+                                    array.set(index, value)?;
+                                }
+                            }
+                        }
+                        func.call::<_, f64>((array,))
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
+                number_value(self.result, sum)
+            }
+            QuickJsMode::BulkListOut => {
+                let sum = self
+                    .context
+                    .with(|ctx| {
+                        let func = entry.restore(&ctx)?;
+                        func.call::<_, f64>(())
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
+                number_value(self.result, sum)
+            }
             QuickJsMode::Error { propagates } => {
                 let result = self.context.with(|ctx| {
                     let func = entry.restore(&ctx)?;
@@ -393,6 +475,24 @@ fn register_host_functions(ctx: &Ctx<'_>) -> JsResult<()> {
     })?
     .with_name("interop_fail")?;
     globals.set("interop_fail", fail)?;
+
+    let sum_f64 = Function::new(ctx.clone(), |array: Array| -> f64 {
+        array
+            .iter::<f64>()
+            .map(|value| value.unwrap_or(0.0))
+            .sum()
+    })?
+    .with_name("interop_sum_f64_list")?;
+    globals.set("interop_sum_f64_list", sum_f64)?;
+
+    let sum_u8 = Function::new(ctx.clone(), |array: Array| -> f64 {
+        array
+            .iter::<f64>()
+            .map(|value| value.unwrap_or(0.0))
+            .sum()
+    })?
+    .with_name("interop_sum_u8_list")?;
+    globals.set("interop_sum_u8_list", sum_u8)?;
 
     Ok(())
 }

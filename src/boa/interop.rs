@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use anyhow::{anyhow, bail, Result};
 use boa_engine::class::{Class, ClassBuilder};
+use boa_engine::object::builtins::JsArray;
 use boa_engine::object::FunctionObjectBuilder;
 use boa_engine::property::Attribute;
 use boa_engine::{
@@ -10,7 +11,9 @@ use boa_engine::{
 
 use crate::harness::{number_value, read_script, ResultKind, Value};
 use crate::interop::host;
-use crate::interop::{InteropCase, InteropEngine, InteropOp};
+use crate::interop::{
+    BulkMode, BulkValue, Direction, InteropCase, InteropEngine, InteropOp,
+};
 
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Trace, Finalize, JsData)]
 pub struct InteropData(i64);
@@ -114,6 +117,8 @@ enum BoaMode {
     CallIn { iterations: usize },
     Callback { iterations: usize },
     Userdata,
+    BulkListIn { value: BulkValue, size: usize },
+    BulkListOut,
     Error { propagates: bool },
 }
 
@@ -141,6 +146,13 @@ impl InteropEngine for BoaInterop {
             InteropOp::CallIn { iterations } => BoaMode::CallIn { iterations },
             InteropOp::Callback { iterations } => BoaMode::Callback { iterations },
             InteropOp::Userdata(_) => BoaMode::Userdata,
+            InteropOp::Bulk(op) if op.mode == BulkMode::List => match op.direction {
+                Direction::In => BoaMode::BulkListIn {
+                    value: op.value,
+                    size: op.size,
+                },
+                Direction::Out => BoaMode::BulkListOut,
+            },
             InteropOp::Error(op) => BoaMode::Error {
                 propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
             },
@@ -215,6 +227,29 @@ impl InteropEngine for BoaInterop {
                 let value = self.call(&[])?;
                 std::hint::black_box(value);
             }
+            BoaMode::BulkListIn { value, size } => {
+                let array = match value {
+                    BulkValue::F64 => JsArray::from_iter(
+                        host::bulk_f64_values(size)
+                            .into_iter()
+                            .map(JsValue::from),
+                        &mut self.context,
+                    ),
+                    BulkValue::U8 => JsArray::from_iter(
+                        host::bulk_u8_values(size)
+                            .into_iter()
+                            .map(|value| JsValue::from(f64::from(value))),
+                        &mut self.context,
+                    ),
+                }
+                .map_err(|error| anyhow!("{error}"))?;
+                let value = self.call(&[array.into()])?;
+                std::hint::black_box(value);
+            }
+            BoaMode::BulkListOut => {
+                let value = self.call(&[])?;
+                std::hint::black_box(value);
+            }
             BoaMode::Error { propagates } => match self.call(&[]) {
                 Ok(value) => {
                     if propagates {
@@ -263,6 +298,35 @@ impl InteropEngine for BoaInterop {
                 Ok(Value::Int(sum))
             }
             BoaMode::Userdata => {
+                let value = self.call(&[])?;
+                let number = value
+                    .to_number(&mut self.context)
+                    .map_err(|error| anyhow!("{error}"))?;
+                number_value(self.result, number)
+            }
+            BoaMode::BulkListIn { value, size } => {
+                let array = match value {
+                    BulkValue::F64 => JsArray::from_iter(
+                        host::bulk_f64_values(size)
+                            .into_iter()
+                            .map(JsValue::from),
+                        &mut self.context,
+                    ),
+                    BulkValue::U8 => JsArray::from_iter(
+                        host::bulk_u8_values(size)
+                            .into_iter()
+                            .map(|value| JsValue::from(f64::from(value))),
+                        &mut self.context,
+                    ),
+                }
+                .map_err(|error| anyhow!("{error}"))?;
+                let value = self.call(&[array.into()])?;
+                let number = value
+                    .to_number(&mut self.context)
+                    .map_err(|error| anyhow!("{error}"))?;
+                number_value(self.result, number)
+            }
+            BoaMode::BulkListOut => {
                 let value = self.call(&[])?;
                 let number = value
                     .to_number(&mut self.context)
@@ -372,6 +436,32 @@ fn register_host_functions(context: &mut boa_engine::Context) -> Result<()> {
             Err(JsNativeError::typ()
                 .with_message(host::HOST_ERROR)
                 .into())
+        }),
+    )?;
+    register(
+        "interop_sum_f64_list",
+        1,
+        NativeFunction::from_fn_ptr(|_this, args, ctx| {
+            let array = JsArray::from_object(args[0].as_object().unwrap().clone())?;
+            let length = array.length(ctx)?;
+            let mut sum = 0.0f64;
+            for index in 0..length {
+                sum += array.get(index, ctx)?.to_number(ctx)?;
+            }
+            Ok(JsValue::from(sum))
+        }),
+    )?;
+    register(
+        "interop_sum_u8_list",
+        1,
+        NativeFunction::from_fn_ptr(|_this, args, ctx| {
+            let array = JsArray::from_object(args[0].as_object().unwrap().clone())?;
+            let length = array.length(ctx)?;
+            let mut sum = 0.0f64;
+            for index in 0..length {
+                sum += array.get(index, ctx)?.to_number(ctx)?;
+            }
+            Ok(JsValue::from(sum))
         }),
     )?;
 

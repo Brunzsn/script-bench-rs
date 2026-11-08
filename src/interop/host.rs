@@ -105,6 +105,31 @@ pub fn native_callback() {
     keep(sum);
 }
 
+/// Expected sum for a bulk case whose elements are all one.
+pub fn expected_bulk(size: usize) -> f64 {
+    size as f64
+}
+
+pub fn bulk_f64_values(size: usize) -> Vec<f64> {
+    vec![1.0; size]
+}
+
+pub fn bulk_u8_values(size: usize) -> Vec<u8> {
+    vec![1; size]
+}
+
+pub fn native_bulk_f64(size: usize) {
+    let values = bulk_f64_values(size);
+    let sum: f64 = values.iter().sum();
+    keep(sum);
+}
+
+pub fn native_bulk_u8(size: usize) {
+    let values = bulk_u8_values(size);
+    let sum: f64 = values.iter().map(|value| f64::from(*value)).sum();
+    keep(sum);
+}
+
 /// Expected number of errors caught by the script-side loop.
 pub fn expected_error_caught() -> i64 {
     SMALL_ITERATIONS as i64

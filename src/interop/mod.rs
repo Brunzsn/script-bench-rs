@@ -9,6 +9,7 @@ use anyhow::{Context as _, Result};
 
 use crate::harness::{ResultKind, Scripts, Value};
 
+pub mod bulk;
 pub mod call_in;
 pub mod callbacks;
 pub mod calls;
@@ -184,4 +185,16 @@ pub static INTEROP_CASES: &[InteropCase] = &[
     userdata::FIELD_SET,
     userdata::CTOR_COPY,
     userdata::CTOR_RC,
+    bulk::F64_IN_1K,
+    bulk::F64_IN_100K,
+    bulk::F64_IN_1M,
+    bulk::F64_OUT_1K,
+    bulk::F64_OUT_100K,
+    bulk::F64_OUT_1M,
+    bulk::U8_IN_1K,
+    bulk::U8_IN_100K,
+    bulk::U8_IN_1M,
+    bulk::U8_OUT_1K,
+    bulk::U8_OUT_100K,
+    bulk::U8_OUT_1M,
 ];
