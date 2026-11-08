@@ -1,14 +1,51 @@
+use std::cell::Cell;
+use std::rc::Rc;
+
 use anyhow::{anyhow, bail, Result};
-use mlua::{Function, Lua};
+use mlua::{Function, Lua, UserData, UserDataRegistry};
 
 use crate::harness::{number_value, read_script, ResultKind, Value};
 use crate::interop::host;
 use crate::interop::{InteropCase, InteropEngine, InteropOp};
 
+#[derive(Default, Clone)]
+pub struct InteropData(Cell<i64>);
+
+impl UserData for InteropData {
+    fn register(registry: &mut UserDataRegistry<Self>) {
+        registry.add_function("new", |_, value: i64| Ok(InteropData(Cell::new(value))));
+        registry.add_method("get", |_, this, ()| Ok(this.0.get()));
+        registry.add_field_method_get("value", |_, this| Ok(this.0.get()));
+        registry.add_field_method_set("value", |_, this, value: i64| {
+            this.0.set(value);
+            Ok(())
+        });
+    }
+}
+
+#[derive(Default, Clone, Copy)]
+pub struct CopyData(i64);
+
+impl UserData for CopyData {
+    fn register(registry: &mut UserDataRegistry<Self>) {
+        registry.add_function("new", |_, value: i64| Ok(CopyData(value)));
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct RcData(Rc<str>);
+
+impl UserData for RcData {
+    fn register(registry: &mut UserDataRegistry<Self>) {
+        registry.add_function("new", |_, value: String| Ok(RcData(value.into())));
+    }
+}
+
 enum MluaMode {
     Call,
     CallIn { iterations: usize },
     Callback { iterations: usize },
+    Userdata,
     Error { propagates: bool },
 }
 
@@ -26,17 +63,31 @@ impl InteropEngine for MluaInterop {
             InteropOp::Call => MluaMode::Call,
             InteropOp::CallIn { iterations } => MluaMode::CallIn { iterations },
             InteropOp::Callback { iterations } => MluaMode::Callback { iterations },
+            InteropOp::Userdata(_) => MluaMode::Userdata,
             InteropOp::Error(op) => MluaMode::Error {
                 propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
             },
             _ => return Ok(None),
         };
         let is_callback = matches!(mode, MluaMode::Callback { .. });
+        let is_userdata = matches!(mode, MluaMode::Userdata);
         let Some(script_path) = case.scripts.lua else {
             return Ok(None);
         };
         let lua = Lua::new();
         register_host_functions(&lua)?;
+        if is_userdata {
+            let globals = lua.globals();
+            globals
+                .set("InteropData", lua.create_proxy::<InteropData>()?)
+                .map_err(|error| anyhow!("{error}"))?;
+            globals
+                .set("CopyData", lua.create_proxy::<CopyData>()?)
+                .map_err(|error| anyhow!("{error}"))?;
+            globals
+                .set("RcData", lua.create_proxy::<RcData>()?)
+                .map_err(|error| anyhow!("{error}"))?;
+        }
 
         #[cfg(feature = "mlua_luau")]
         {
@@ -97,6 +148,10 @@ impl InteropEngine for MluaInterop {
                 }
                 std::hint::black_box(sum);
             }
+            MluaMode::Userdata => {
+                let value: f64 = self.entry.call(()).map_err(|error| anyhow!("{error}"))?;
+                std::hint::black_box(value);
+            }
             MluaMode::Error { propagates } => {
                 let result = self.entry.call::<f64>(());
                 match result {
@@ -144,6 +199,10 @@ impl InteropEngine for MluaInterop {
                     sum = sum.wrapping_add(value);
                 }
                 Ok(Value::Int(sum))
+            }
+            MluaMode::Userdata => {
+                let value: f64 = self.entry.call(()).map_err(|error| anyhow!("{error}"))?;
+                number_value(self.result, value)
             }
             MluaMode::Error { propagates } => {
                 let result = self.entry.call::<f64>(());

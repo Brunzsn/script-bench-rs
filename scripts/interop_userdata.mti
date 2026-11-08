@@ -1,0 +1,7 @@
+struct Doc
+
+fn interop_new_doc(value: int) -> Doc
+fn interop_method(doc: Doc) -> int
+
+on bench_userdata_method() -> int
+on bench_userdata_ctor_rc() -> int

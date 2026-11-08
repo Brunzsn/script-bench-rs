@@ -1,5 +1,11 @@
 use anyhow::{anyhow, bail, Result};
-use roto::{library, RotoString, Runtime};
+use roto::{library, RotoString, Runtime, Val};
+
+#[derive(Clone, Default, PartialEq)]
+pub struct CopyData(pub i64);
+
+#[derive(Clone, Default, PartialEq)]
+pub struct RcData(pub RotoString);
 
 use crate::harness::{script_path, ResultKind, Value};
 use crate::interop::host;
@@ -21,7 +27,10 @@ pub struct RotoInterop {
 
 impl InteropEngine for RotoInterop {
     fn setup(case: &InteropCase) -> Result<Option<Self>> {
-        if !matches!(case.op, InteropOp::Call | InteropOp::CallIn { .. }) {
+        if !matches!(
+            case.op,
+            InteropOp::Call | InteropOp::CallIn { .. } | InteropOp::Userdata(_)
+        ) {
             return Ok(None);
         }
         let Some(script) = case.scripts.roto else {
@@ -62,6 +71,25 @@ impl InteropEngine for RotoInterop {
                     self.bytes().len() as u64
                 }
             }
+
+            #[clone] type CopyData = Val<CopyData>;
+            #[clone] type RcData = Val<RcData>;
+
+            impl Val<CopyData> {
+                fn new(value: u64) -> Val<CopyData> {
+                    Val(CopyData(value as i64))
+                }
+
+                fn get(this: Val<CopyData>) -> u64 {
+                    this.0.0 as u64
+                }
+            }
+
+            impl Val<RcData> {
+                fn new(value: RotoString) -> Val<RcData> {
+                    Val(RcData(value))
+                }
+            }
         };
 
         let runtime = Runtime::from_lib(lib).map_err(|error| anyhow!("{error:?}"))?;
@@ -75,6 +103,11 @@ impl InteropEngine for RotoInterop {
                     .get_function::<UpdateFn>(case.entry)
                     .map_err(|error| anyhow!("{error:?}"))?,
                 iterations,
+            ),
+            InteropOp::Userdata(_) => RotoInteropFn::Int(
+                package
+                    .get_function::<IntBenchFn>(case.entry)
+                    .map_err(|error| anyhow!("{error:?}"))?,
             ),
             InteropOp::Call => match case.result {
                 ResultKind::Int => RotoInteropFn::Int(

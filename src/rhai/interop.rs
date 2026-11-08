@@ -1,8 +1,50 @@
+use std::cell::Cell;
+use std::rc::Rc;
+
 use anyhow::{anyhow, bail, Result};
 
 use crate::harness::{read_script, ResultKind, Value};
 use crate::interop::host;
 use crate::interop::{InteropCase, InteropEngine, InteropOp};
+
+#[derive(Clone)]
+pub struct InteropData(Cell<i64>);
+
+impl InteropData {
+    fn new(value: i64) -> Self {
+        Self(Cell::new(value))
+    }
+
+    fn get(&mut self) -> i64 {
+        self.0.get()
+    }
+
+    fn value(&mut self) -> i64 {
+        self.0.get()
+    }
+
+    fn set_value(&mut self, value: i64) {
+        self.0.set(value);
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct CopyData(i64);
+
+impl CopyData {
+    fn new(value: i64) -> Self {
+        Self(value)
+    }
+}
+
+#[derive(Clone)]
+pub struct RcData(Rc<str>);
+
+impl RcData {
+    fn new(value: String) -> Self {
+        Self(value.into())
+    }
+}
 
 enum RhaiMode {
     Call,
@@ -11,6 +53,7 @@ enum RhaiMode {
         callback: rhai::FnPtr,
         iterations: usize,
     },
+    Userdata,
     Error { propagates: bool },
 }
 
@@ -30,6 +73,7 @@ impl InteropEngine for RhaiInterop {
             InteropOp::Call
                 | InteropOp::CallIn { .. }
                 | InteropOp::Callback { .. }
+                | InteropOp::Userdata(_)
                 | InteropOp::Error(_)
         ) {
             return Ok(None);
@@ -42,6 +86,9 @@ impl InteropEngine for RhaiInterop {
         engine.set_max_call_levels(1000);
         engine.set_max_expr_depths(0, 0);
         register_host_functions(&mut engine);
+        if matches!(case.op, InteropOp::Userdata(_)) {
+            register_userdata(&mut engine);
+        }
 
         let script = read_script(script_path)?;
         let ast = engine
@@ -61,6 +108,7 @@ impl InteropEngine for RhaiInterop {
                     iterations,
                 }
             }
+            InteropOp::Userdata(_) => RhaiMode::Userdata,
             InteropOp::Error(op) => RhaiMode::Error {
                 propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
             },
@@ -122,6 +170,13 @@ impl InteropEngine for RhaiInterop {
                     sum = sum.wrapping_add(value);
                 }
                 std::hint::black_box(sum);
+            }
+            RhaiMode::Userdata => {
+                let value: i64 = self
+                    .engine
+                    .call_fn(&mut self.scope, &self.ast, self.entry, ())
+                    .map_err(|error| anyhow!("{error}"))?;
+                std::hint::black_box(value);
             }
             RhaiMode::Error { propagates } => {
                 let result: Result<i64, _> =
@@ -189,6 +244,13 @@ impl InteropEngine for RhaiInterop {
                 }
                 Ok(Value::Int(sum))
             }
+            RhaiMode::Userdata => {
+                let value: i64 = self
+                    .engine
+                    .call_fn(&mut self.scope, &self.ast, self.entry, ())
+                    .map_err(|error| anyhow!("{error}"))?;
+                Ok(Value::Int(value))
+            }
             RhaiMode::Error { propagates } => {
                 let result: Result<i64, _> =
                     self.engine.call_fn(&mut self.scope, &self.ast, self.entry, ());
@@ -205,6 +267,18 @@ impl InteropEngine for RhaiInterop {
             }
         }
     }
+}
+
+fn register_userdata(engine: &mut rhai::Engine) {
+    engine
+        .register_type_with_name::<InteropData>("InteropData")
+        .register_fn("InteropData_new", InteropData::new)
+        .register_fn("get", InteropData::get)
+        .register_get_set("value", InteropData::value, InteropData::set_value)
+        .register_type_with_name::<CopyData>("CopyData")
+        .register_fn("CopyData_new", CopyData::new)
+        .register_type_with_name::<RcData>("RcData")
+        .register_fn("RcData_new", RcData::new);
 }
 
 fn register_host_functions(engine: &mut rhai::Engine) {

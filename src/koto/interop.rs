@@ -1,14 +1,65 @@
+use std::rc::Rc;
+
 use anyhow::{anyhow, bail, Result};
-use koto::{prelude::*, runtime};
+use koto::{derive::*, prelude::*, runtime};
 
 use crate::harness::{number_value, read_script, ResultKind, Value};
 use crate::interop::host;
 use crate::interop::{InteropCase, InteropEngine, InteropOp};
 
+#[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, KotoCopy, KotoType)]
+pub struct InteropData(i64);
+
+#[koto_impl]
+impl InteropData {
+    fn new_koto_object(value: i64) -> KObject {
+        KObject::from(Self(value))
+    }
+
+    #[koto_method]
+    fn get(&self) -> KValue {
+        self.0.into()
+    }
+}
+
+impl KotoObject for InteropData {
+    fn display(&self, ctx: &mut DisplayContext) -> runtime::Result<()> {
+        ctx.append(self.0.to_string());
+        Ok(())
+    }
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, KotoCopy, KotoType)]
+pub struct CopyData(i64);
+
+#[koto_impl]
+impl CopyData {}
+
+impl KotoObject for CopyData {
+    fn display(&self, ctx: &mut DisplayContext) -> runtime::Result<()> {
+        ctx.append(self.0.to_string());
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, KotoCopy, KotoType)]
+pub struct RcData(Rc<str>);
+
+#[koto_impl]
+impl RcData {}
+
+impl KotoObject for RcData {
+    fn display(&self, ctx: &mut DisplayContext) -> runtime::Result<()> {
+        ctx.append(self.0.to_string());
+        Ok(())
+    }
+}
+
 enum KotoMode {
     Call,
     CallIn { iterations: usize },
     Callback { iterations: usize },
+    Userdata,
     Error { propagates: bool },
 }
 
@@ -25,6 +76,7 @@ impl InteropEngine for KotoInterop {
             InteropOp::Call => KotoMode::Call,
             InteropOp::CallIn { iterations } => KotoMode::CallIn { iterations },
             InteropOp::Callback { iterations } => KotoMode::Callback { iterations },
+            InteropOp::Userdata(_) => KotoMode::Userdata,
             InteropOp::Error(op) => KotoMode::Error {
                 propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
             },
@@ -101,6 +153,13 @@ impl InteropEngine for KotoInterop {
                 }
                 std::hint::black_box(sum);
             }
+            KotoMode::Userdata => {
+                let value = self
+                    .engine
+                    .call_function(self.entry.clone(), &[])
+                    .map_err(|error| anyhow!("{error}"))?;
+                std::hint::black_box(value);
+            }
             KotoMode::Error { propagates } => {
                 let result = self.engine.call_function(self.entry.clone(), &[]);
                 match result {
@@ -159,6 +218,16 @@ impl InteropEngine for KotoInterop {
                     sum = sum.wrapping_add(f64::from(number) as i64);
                 }
                 Ok(Value::Int(sum))
+            }
+            KotoMode::Userdata => {
+                let value = self
+                    .engine
+                    .call_function(self.entry.clone(), &[])
+                    .map_err(|error| anyhow!("{error}"))?;
+                let KValue::Number(number) = value else {
+                    bail!("interop userdata case did not return a number");
+                };
+                number_value(self.result, f64::from(number))
             }
             KotoMode::Error { propagates } => {
                 let result = self.engine.call_function(self.entry.clone(), &[]);
@@ -242,5 +311,20 @@ fn register_host_functions(prelude: &koto::runtime::KMap) {
     prelude.add_fn("interop_fail", |ctx| match ctx.args() {
         [] => runtime::runtime_error!("{}", host::HOST_ERROR),
         unexpected => unexpected_args("no arguments", unexpected),
+    });
+
+    prelude.add_fn("InteropData_new", |ctx| match ctx.args() {
+        [KValue::Number(value)] => Ok(InteropData::new_koto_object(i64::from(value)).into()),
+        unexpected => unexpected_args("one number", unexpected),
+    });
+
+    prelude.add_fn("CopyData_new", |ctx| match ctx.args() {
+        [KValue::Number(value)] => Ok(KObject::from(CopyData(i64::from(value))).into()),
+        unexpected => unexpected_args("one number", unexpected),
+    });
+
+    prelude.add_fn("RcData_new", |ctx| match ctx.args() {
+        [KValue::Str(value)] => Ok(KObject::from(RcData(value.as_str().into())).into()),
+        unexpected => unexpected_args("one string", unexpected),
     });
 }

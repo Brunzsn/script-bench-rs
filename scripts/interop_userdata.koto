@@ -1,0 +1,20 @@
+export bench_userdata_method = ||
+    object = InteropData_new 7
+    sum = 0
+    for _ in 0..100_000
+        sum += object.get()
+    sum
+
+export bench_userdata_ctor_copy = ||
+    count = 0
+    for _ in 0..100_000
+        value = CopyData_new 7
+        count += 1
+    count
+
+export bench_userdata_ctor_rc = ||
+    count = 0
+    for _ in 0..100_000
+        value = RcData_new 'interop'
+        count += 1
+    count

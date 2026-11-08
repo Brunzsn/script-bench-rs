@@ -25,6 +25,8 @@ pub const F64_ARG: f64 = 1.5;
 pub const CALLBACK_INCREMENT: i64 = 1;
 pub const HOST_ERROR: &str = "interop error";
 pub const UPDATE_DT: f64 = 1.5;
+pub const USERDATA_VALUE: i64 = 7;
+pub const USERDATA_STRING: &str = "interop";
 
 #[inline(never)]
 pub fn ping() -> i64 {
@@ -124,6 +126,79 @@ pub fn native_error_propagates() {
     let result = failing_call();
     keep(result.is_err());
 }
+
+/// Native equivalent of the method-call case.
+pub fn native_userdata_method() {
+    let object = InteropValue(USERDATA_VALUE);
+    let mut sum = 0i64;
+    for _ in 0..USERDATA_ITERATIONS {
+        sum = sum.wrapping_add(object.get());
+    }
+    keep(sum);
+}
+
+/// Native equivalent of the field-read case.
+pub fn native_userdata_field_get() {
+    let object = InteropValue(USERDATA_VALUE);
+    let mut sum = 0i64;
+    for _ in 0..USERDATA_ITERATIONS {
+        sum = sum.wrapping_add(object.value());
+    }
+    keep(sum);
+}
+
+/// Native equivalent of the field-write case.
+pub fn native_userdata_field_set() {
+    let mut object = InteropValue(0);
+    for index in 0..USERDATA_ITERATIONS {
+        object.set_value(index as i64);
+    }
+    keep(object.value());
+}
+
+/// Native equivalent of constructing a copy-like host value.
+pub fn native_userdata_ctor_copy() {
+    let mut count = 0i64;
+    for _ in 0..USERDATA_ITERATIONS {
+        let value = CopyValue(USERDATA_VALUE);
+        keep(value);
+        count += 1;
+    }
+    keep(count);
+}
+
+/// Native equivalent of constructing an `Rc`-backed host value.
+pub fn native_userdata_ctor_rc() {
+    let mut count = 0i64;
+    for _ in 0..USERDATA_ITERATIONS {
+        let value = RcValue(std::rc::Rc::from(USERDATA_STRING));
+        keep(value);
+        count += 1;
+    }
+    keep(count);
+}
+
+#[derive(Clone, Copy)]
+struct InteropValue(i64);
+
+impl InteropValue {
+    fn get(self) -> i64 {
+        self.0
+    }
+
+    fn value(self) -> i64 {
+        self.0
+    }
+
+    fn set_value(&mut self, value: i64) {
+        self.0 = value;
+    }
+}
+
+#[derive(Clone, Copy)]
+struct CopyValue(i64);
+
+struct RcValue(std::rc::Rc<str>);
 
 #[inline(never)]
 pub fn failing_call() -> Result<i64, String> {

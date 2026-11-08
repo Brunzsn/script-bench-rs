@@ -1,14 +1,112 @@
+use std::cell::Cell;
+use std::rc::Rc;
+
 use anyhow::{anyhow, bail, Result};
-use rquickjs::{Context, Ctx, Function, Persistent, Result as JsResult, Runtime};
+use rquickjs::class::{Class, JsClass, Readable, Trace, Tracer};
+use rquickjs::function::{Constructor, This};
+use rquickjs::{
+    Accessor, Context, Ctx, Function, JsLifetime, Persistent, Result as JsResult, Runtime,
+};
 
 use crate::harness::{number_value, read_script, ResultKind, Value};
 use crate::interop::host;
 use crate::interop::{InteropCase, InteropEngine, InteropOp};
 
+#[derive(Default, Clone)]
+pub struct InteropData(Cell<i64>);
+
+impl<'js> Trace<'js> for InteropData {
+    fn trace<'a>(&self, _tracer: Tracer<'a, 'js>) {}
+}
+
+unsafe impl<'js> JsLifetime<'js> for InteropData {
+    type Changed<'to> = InteropData;
+}
+
+impl<'js> JsClass<'js> for InteropData {
+    const NAME: &'static str = "InteropData";
+    type Mutable = Readable;
+
+    fn prototype(ctx: &Ctx<'js>) -> JsResult<Option<rquickjs::Object<'js>>> {
+        let proto = rquickjs::Object::new(ctx.clone())?;
+        let get = Function::new(ctx.clone(), |this: This<Self>| this.0.get())?
+            .with_name("get")?;
+        proto.prop("get", get)?;
+        let value_get = Function::new(ctx.clone(), |this: This<Self>| this.0.get())?;
+        let value_set = Function::new(ctx.clone(), |this: This<Self>, value: i64| {
+            this.0.set(value)
+        })?;
+        proto.prop("value", Accessor::from(value_get).set(value_set))?;
+        Ok(Some(proto))
+    }
+
+    fn constructor(ctx: &Ctx<'js>) -> JsResult<Option<Constructor<'js>>> {
+        Ok(Some(Constructor::new_class::<Self, _, _>(
+            ctx.clone(),
+            |value: i64| InteropData(Cell::new(value)),
+        )?))
+    }
+}
+
+#[derive(Default, Clone, Copy)]
+pub struct CopyData(i64);
+
+impl<'js> Trace<'js> for CopyData {
+    fn trace<'a>(&self, _tracer: Tracer<'a, 'js>) {}
+}
+
+unsafe impl<'js> JsLifetime<'js> for CopyData {
+    type Changed<'to> = CopyData;
+}
+
+impl<'js> JsClass<'js> for CopyData {
+    const NAME: &'static str = "CopyData";
+    type Mutable = Readable;
+
+    fn prototype(_ctx: &Ctx<'js>) -> JsResult<Option<rquickjs::Object<'js>>> {
+        Ok(None)
+    }
+
+    fn constructor(ctx: &Ctx<'js>) -> JsResult<Option<Constructor<'js>>> {
+        Ok(Some(Constructor::new_class::<Self, _, _>(
+            ctx.clone(),
+            |value: i64| CopyData(value),
+        )?))
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct RcData(Rc<str>);
+
+impl<'js> Trace<'js> for RcData {
+    fn trace<'a>(&self, _tracer: Tracer<'a, 'js>) {}
+}
+
+unsafe impl<'js> JsLifetime<'js> for RcData {
+    type Changed<'to> = RcData;
+}
+
+impl<'js> JsClass<'js> for RcData {
+    const NAME: &'static str = "RcData";
+    type Mutable = Readable;
+
+    fn prototype(_ctx: &Ctx<'js>) -> JsResult<Option<rquickjs::Object<'js>>> {
+        Ok(None)
+    }
+
+    fn constructor(ctx: &Ctx<'js>) -> JsResult<Option<Constructor<'js>>> {
+        Ok(Some(Constructor::new_class::<Self, _, _>(
+            ctx.clone(),
+            |value: String| RcData(value.into()),
+        )?))
+    }
+}
+
 enum QuickJsMode {
     Call,
     CallIn { iterations: usize },
     Callback { iterations: usize },
+    Userdata,
     Error { propagates: bool },
 }
 
@@ -27,12 +125,14 @@ impl InteropEngine for QuickJsInterop {
             InteropOp::Call => QuickJsMode::Call,
             InteropOp::CallIn { iterations } => QuickJsMode::CallIn { iterations },
             InteropOp::Callback { iterations } => QuickJsMode::Callback { iterations },
+            InteropOp::Userdata(_) => QuickJsMode::Userdata,
             InteropOp::Error(op) => QuickJsMode::Error {
                 propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
             },
             _ => return Ok(None),
         };
         let is_callback = matches!(mode, QuickJsMode::Callback { .. });
+        let is_userdata = matches!(mode, QuickJsMode::Userdata);
         let Some(script_path) = case.scripts.js else {
             return Ok(None);
         };
@@ -44,6 +144,12 @@ impl InteropEngine for QuickJsInterop {
         let entry = context
             .with(|ctx| -> JsResult<Persistent<Function<'static>>> {
                 register_host_functions(&ctx)?;
+                if is_userdata {
+                    let globals = ctx.globals();
+                    Class::<InteropData>::define(&globals)?;
+                    Class::<CopyData>::define(&globals)?;
+                    Class::<RcData>::define(&globals)?;
+                }
                 ctx.eval::<(), _>(script.as_str())?;
                 let func = ctx.globals().get::<_, Function>(case.entry)?;
                 let func = if is_callback {
@@ -100,6 +206,14 @@ impl InteropEngine for QuickJsInterop {
                         }
                         std::hint::black_box(sum);
                         Ok::<(), rquickjs::Error>(())
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
+            }
+            QuickJsMode::Userdata => {
+                self.context
+                    .with(|ctx| {
+                        let func = entry.restore(&ctx)?;
+                        func.call::<_, f64>(())
                     })
                     .map_err(|error| anyhow!("{error}"))?;
             }
@@ -165,6 +279,16 @@ impl InteropEngine for QuickJsInterop {
                     })
                     .map_err(|error| anyhow!("{error}"))?;
                 Ok(Value::Int(sum))
+            }
+            QuickJsMode::Userdata => {
+                let value = self
+                    .context
+                    .with(|ctx| {
+                        let func = entry.restore(&ctx)?;
+                        func.call::<_, f64>(())
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
+                number_value(self.result, value)
             }
             QuickJsMode::Error { propagates } => {
                 let result = self.context.with(|ctx| {

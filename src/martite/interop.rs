@@ -12,6 +12,7 @@ enum MartiteMode {
     Call,
     CallIn { iterations: usize },
     Callback { iterations: usize },
+    Userdata,
     Error { propagates: bool },
 }
 
@@ -28,6 +29,7 @@ impl InteropEngine for MartiteInterop {
             InteropOp::Call => MartiteMode::Call,
             InteropOp::CallIn { iterations } => MartiteMode::CallIn { iterations },
             InteropOp::Callback { iterations } => MartiteMode::Callback { iterations },
+            InteropOp::Userdata(_) => MartiteMode::Userdata,
             InteropOp::Error(op) => MartiteMode::Error {
                 propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
             },
@@ -122,6 +124,18 @@ impl InteropEngine for MartiteInterop {
                 }
                 std::hint::black_box(sum);
             }
+            MartiteMode::Userdata => {
+                let outcome = self
+                    .instance
+                    .call(self.entry, Vec::new())
+                    .map_err(|trap| {
+                        anyhow!("Martite interop failed: {}", trap.panic_message())
+                    })?;
+                let Outcome::Handled(Value::Int(value)) = outcome else {
+                    bail!("expected `{}` to return an int", self.entry);
+                };
+                std::hint::black_box(value);
+            }
             MartiteMode::Error { propagates } => {
                 let outcome = self
                     .instance
@@ -201,6 +215,18 @@ impl InteropEngine for MartiteInterop {
                     sum = sum.wrapping_add(value);
                 }
                 Ok(BenchValue::Int(sum))
+            }
+            MartiteMode::Userdata => {
+                let outcome = self
+                    .instance
+                    .call(self.entry, Vec::new())
+                    .map_err(|trap| {
+                        anyhow!("Martite interop failed: {}", trap.panic_message())
+                    })?;
+                let Outcome::Handled(Value::Int(value)) = outcome else {
+                    bail!("expected `{}` to return an int", self.entry);
+                };
+                Ok(BenchValue::Int(value))
             }
             MartiteMode::Error { propagates } => {
                 let outcome = self
@@ -310,6 +336,21 @@ fn register_host_functions(engine: &mut martite::Engine) {
                 args[0].as_int().unwrap_or_default(),
             )))
         },
+    );
+
+    engine.host_fn(
+        "bench.data.interop_new_doc",
+        HostSignature::new(vec![HostType::Int], HostType::Handle("Doc".into())),
+        |cx, args| {
+            let value = args[0].as_int().unwrap_or_default();
+            cx.make_handle(value.to_string())
+        },
+    );
+
+    engine.host_fn(
+        "bench.data.interop_method",
+        HostSignature::new(vec![HostType::Handle("Doc".into())], HostType::Int),
+        |_cx, _args| Ok(Value::Int(host::USERDATA_VALUE)),
     );
 
     engine.host_fn(

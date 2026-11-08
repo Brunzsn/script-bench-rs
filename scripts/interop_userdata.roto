@@ -1,0 +1,32 @@
+fn bench_userdata_method() -> u64 {
+    let object = CopyData.new(7);
+    let sum: u64 = 0;
+    let index: u64 = 0;
+    while index < 100000 {
+        sum = sum + object.get();
+        index = index + 1;
+    }
+    sum
+}
+
+fn bench_userdata_ctor_copy() -> u64 {
+    let count: u64 = 0;
+    let index: u64 = 0;
+    while index < 100000 {
+        let object = CopyData.new(7);
+        count = count + 1;
+        index = index + 1;
+    }
+    count
+}
+
+fn bench_userdata_ctor_rc() -> u64 {
+    let count: u64 = 0;
+    let index: u64 = 0;
+    while index < 100000 {
+        let object = RcData.new("interop");
+        count = count + 1;
+        index = index + 1;
+    }
+    count
+}

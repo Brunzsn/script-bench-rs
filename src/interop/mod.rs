@@ -14,6 +14,7 @@ pub mod callbacks;
 pub mod calls;
 pub mod errors;
 pub mod host;
+pub mod userdata;
 
 /// A bulk-data element type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -178,4 +179,9 @@ pub static INTEROP_CASES: &[InteropCase] = &[
     callbacks::CALLBACK,
     errors::ERROR_CAUGHT,
     errors::ERROR_PROPAGATES,
+    userdata::METHOD,
+    userdata::FIELD_GET,
+    userdata::FIELD_SET,
+    userdata::CTOR_COPY,
+    userdata::CTOR_RC,
 ];

@@ -1,16 +1,111 @@
+use std::rc::Rc;
+
 use anyhow::{anyhow, bail, Result};
+use boa_engine::class::{Class, ClassBuilder};
+use boa_engine::object::FunctionObjectBuilder;
+use boa_engine::property::Attribute;
 use boa_engine::{
-    js_string, JsNativeError, JsString, JsValue, NativeFunction, Source,
+    js_string, Finalize, JsData, JsNativeError, JsString, JsValue, NativeFunction, Source, Trace,
 };
 
 use crate::harness::{number_value, read_script, ResultKind, Value};
 use crate::interop::host;
 use crate::interop::{InteropCase, InteropEngine, InteropOp};
 
+#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Trace, Finalize, JsData)]
+pub struct InteropData(i64);
+
+impl Class for InteropData {
+    const NAME: &'static str = "InteropData";
+    const LENGTH: usize = 1;
+
+    fn data_constructor(
+        _new_target: &JsValue,
+        args: &[JsValue],
+        context: &mut boa_engine::Context,
+    ) -> boa_engine::JsResult<Self> {
+        Ok(Self(args[0].to_number(context)? as i64))
+    }
+
+    fn init(class: &mut ClassBuilder) -> boa_engine::JsResult<()> {
+        class.method(
+            js_string!("get"),
+            0,
+            NativeFunction::from_fn_ptr(|this, _args, _ctx| {
+                let this = this.as_object().unwrap();
+                let this = this.downcast_ref::<Self>().unwrap();
+                Ok(JsValue::from(this.0))
+            }),
+        );
+
+        let getter = FunctionObjectBuilder::new(
+            class.context().realm(),
+            NativeFunction::from_fn_ptr(|this, _args, _ctx| {
+                let this = this.as_object().unwrap();
+                let this = this.downcast_ref::<Self>().unwrap();
+                Ok(JsValue::from(this.0))
+            }),
+        )
+        .build();
+        let setter = FunctionObjectBuilder::new(
+            class.context().realm(),
+            NativeFunction::from_fn_ptr(|this, args, ctx| {
+                let this = this.as_object().unwrap();
+                let mut this = this.downcast_mut::<Self>().unwrap();
+                this.0 = args[0].to_number(ctx)? as i64;
+                Ok(JsValue::undefined())
+            }),
+        )
+        .build();
+        class.accessor(
+            js_string!("value"),
+            Some(getter),
+            Some(setter),
+            Attribute::all(),
+        );
+
+        Ok(())
+    }
+}
+
+#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Trace, Finalize, JsData)]
+pub struct CopyData(i64);
+
+impl Class for CopyData {
+    const NAME: &'static str = "CopyData";
+    const LENGTH: usize = 1;
+
+    fn data_constructor(
+        _new_target: &JsValue,
+        args: &[JsValue],
+        context: &mut boa_engine::Context,
+    ) -> boa_engine::JsResult<Self> {
+        Ok(Self(args[0].to_number(context)? as i64))
+    }
+}
+
+#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Trace, Finalize, JsData)]
+pub struct RcData(Rc<str>);
+
+impl Class for RcData {
+    const NAME: &'static str = "RcData";
+    const LENGTH: usize = 1;
+
+    fn data_constructor(
+        _new_target: &JsValue,
+        args: &[JsValue],
+        context: &mut boa_engine::Context,
+    ) -> boa_engine::JsResult<Self> {
+        let value = args[0].to_string(context)?;
+        Ok(Self(value.to_std_string().unwrap().into()))
+    }
+}
+
 enum BoaMode {
     Call,
     CallIn { iterations: usize },
     Callback { iterations: usize },
+    Userdata,
     Error { propagates: bool },
 }
 
@@ -37,6 +132,7 @@ impl InteropEngine for BoaInterop {
             InteropOp::Call => BoaMode::Call,
             InteropOp::CallIn { iterations } => BoaMode::CallIn { iterations },
             InteropOp::Callback { iterations } => BoaMode::Callback { iterations },
+            InteropOp::Userdata(_) => BoaMode::Userdata,
             InteropOp::Error(op) => BoaMode::Error {
                 propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
             },
@@ -48,6 +144,9 @@ impl InteropEngine for BoaInterop {
 
         let mut context = boa_engine::Context::default();
         register_host_functions(&mut context)?;
+        if matches!(mode, BoaMode::Userdata) {
+            register_userdata(&mut context)?;
+        }
 
         let script = read_script(script_path)?;
         context
@@ -104,6 +203,10 @@ impl InteropEngine for BoaInterop {
                 }
                 std::hint::black_box(sum);
             }
+            BoaMode::Userdata => {
+                let value = self.call(&[])?;
+                std::hint::black_box(value);
+            }
             BoaMode::Error { propagates } => match self.call(&[]) {
                 Ok(value) => {
                     if propagates {
@@ -150,6 +253,13 @@ impl InteropEngine for BoaInterop {
                     sum = sum.wrapping_add(number as i64);
                 }
                 Ok(Value::Int(sum))
+            }
+            BoaMode::Userdata => {
+                let value = self.call(&[])?;
+                let number = value
+                    .to_number(&mut self.context)
+                    .map_err(|error| anyhow!("{error}"))?;
+                number_value(self.result, number)
             }
             BoaMode::Error { propagates } => match self.call(&[]) {
                 Ok(value) => {
@@ -257,5 +367,18 @@ fn register_host_functions(context: &mut boa_engine::Context) -> Result<()> {
         }),
     )?;
 
+    Ok(())
+}
+
+fn register_userdata(context: &mut boa_engine::Context) -> Result<()> {
+    context
+        .register_global_class::<InteropData>()
+        .map_err(|error| anyhow!("{error}"))?;
+    context
+        .register_global_class::<CopyData>()
+        .map_err(|error| anyhow!("{error}"))?;
+    context
+        .register_global_class::<RcData>()
+        .map_err(|error| anyhow!("{error}"))?;
     Ok(())
 }
