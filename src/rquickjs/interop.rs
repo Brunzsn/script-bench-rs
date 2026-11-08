@@ -15,7 +15,7 @@ use crate::interop::host;
 use crate::interop::{InteropCase, InteropEngine, InteropOp};
 
 #[derive(Default, Clone)]
-pub struct InteropData(Cell<i64>);
+pub struct InteropData(Rc<Cell<i64>>);
 
 impl<'js> Trace<'js> for InteropData {
     fn trace<'a>(&self, _tracer: Tracer<'a, 'js>) {}
@@ -45,7 +45,7 @@ impl<'js> JsClass<'js> for InteropData {
     fn constructor(ctx: &Ctx<'js>) -> JsResult<Option<Constructor<'js>>> {
         Ok(Some(Constructor::new_class::<Self, _, _>(
             ctx.clone(),
-            |value: f64| InteropData(Cell::new(value as i64)),
+            |value: f64| InteropData(Rc::new(Cell::new(value as i64))),
         )?))
     }
 }
