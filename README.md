@@ -42,6 +42,20 @@ The suite separates pure-compute cost from Rust interop:
 
 Pure-compute scripts use deterministic in-script inputs and do not call host functions. Roto has no maps or first-class functions and no in-place list mutation, so it does not run the cases that need them. `wasmi` and `wasmtime` run only the precompiled-wasm `Sort Rust objects` case; compiled wasm is not an interpreter baseline.
 
+### Interop benchmarks
+
+Interop cases live in a parallel registry (`src/interop/`) because their timed path is usually driven from Rust rather than from a script entry point. They cover:
+
+- `Interop call ...` — script-to-host call overhead for zero, one, three and five integer arguments, plus f64 and string arguments/results.
+- `Interop call-in update` — Rust calls a script `update(dt)` function repeatedly.
+- `Interop userdata ...` — method calls, field get/set, and copy-like versus handle-like constructors.
+- `Interop callback reentry` — Rust invokes a script closure/hook that calls back into Rust.
+- `Interop bulk ...` — f64 and u8 data passed in and out at 1k, 100k and 1M elements, through engine-native lists and, where available, typed buffers.
+- `Interop serde nested ...` — a nested object is converted between Rust and script values in both directions.
+- `Interop error ...` — a host error is caught in the script, or propagated to the host.
+
+Call, call-in, callback and userdata cases use 100k iterations per timed invocation; serde and error cases use 10k. Bulk list cases use engine-native arrays/tables; buffer cases use typed arrays for Boa/QuickJS and Luau buffers for Luau, and are skipped by the other engines. Martite has no host methods, so its userdata case calls free host functions on opaque handles; its callbacks are hooks and its error paths use `Result` values. Martite runs only the from-script serde direction. Roto skips callbacks, bulk data, serde and error paths. `wasmi` and `wasmtime` do not run interop cases.
+
 ## Adding a benchmark case
 
 A case is one entry in the registry plus one script per language that can express it:
@@ -51,13 +65,16 @@ A case is one entry in the registry plus one script per language that can expres
 3. Leave an engine's script path as `None` when it cannot express the case without host functions; that engine skips the case.
 4. For WebAssembly, point `wasm_source` at a `.wasm.rs` file; `bench.py` compiles every wasm source declared by the registry.
 
+Interop cases follow the same pattern in `src/interop/`: add an `InteropCase` entry, its native baseline and validator, its scripts, and an engine runner implementation in `src/<engine>/interop.rs`. Leave the engine's script path as `None` to skip an unsupported operation.
+
 Everything else (criterion targets, validation reporting, plots) is driven by the registry.
 
 ## Methodology
 
 - **Deterministic inputs.** The interop case receives the same input stream from a fixed-seed SplitMix64 generator (`src/rng.rs`). Pure-compute cases use fixed constants and in-script deterministic generators, so no host RNG is involved. The generator is reset before each validation and timed iteration.
 - **Cross-engine validation.** Each engine's result is checked against the native Rust reference. The sort case is checked by item count, ordering, and an FNV-1a checksum; scalar cases check exact integers or floating-point results within a tolerance. A mismatch fails `cargo bench -- --test` in the checks workflow.
-- **Native baseline.** The `native` criterion target runs the same workload as every case. Plots label every engine with its multiple of that baseline, and `target/benchmark-relative.json` contains the raw ratios.
+- **Native baseline.** The `native` criterion target runs the same workload as every case, including interop cases. Plots label every engine with its multiple of that baseline, and `target/benchmark-relative.json` contains the raw ratios.
+- **Interop workloads.** Interop cases use fixed iteration counts and deterministic one-valued payloads. Script-to-host calls and userdata operations use 100k iterations; Rust-driven call-in and callbacks use 100k; serde and error paths use 10k. Bulk cases use 1k, 100k and 1M elements. The native baseline performs the same number of operations and is kept observable with `black_box`.
 - **Statistics.** Criterion uses 50 samples, a 3 second warm-up, and a 10 second measurement window.
 - **Lua.** No engine receives a `table` preallocation shim; all scripts use ordinary empty tables or lists.
 - **WebAssembly.** `wasmi` and `wasmtime` execute a Rust module precompiled to wasm. They are labelled as compiled-wasm entries and are not scripting-language measurements.
