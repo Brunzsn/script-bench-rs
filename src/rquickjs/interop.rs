@@ -6,7 +6,8 @@ use rquickjs::class::{Class, JsClass, Readable, Trace, Tracer};
 use rquickjs::function::{Constructor, This};
 use rquickjs::object::Accessor;
 use rquickjs::{
-    Context, Ctx, Function, JsLifetime, Persistent, Result as JsResult, Runtime,
+    Context, Ctx, FromJs, Function, IntoJs, JsLifetime, Persistent, Result as JsResult, Runtime,
+    Value as JsValue,
 };
 
 use crate::harness::{number_value, read_script, ResultKind, Value};
@@ -101,6 +102,42 @@ impl<'js> JsClass<'js> for RcData {
             ctx.clone(),
             |value: String| RcData(value.into()),
         )?))
+    }
+}
+
+impl<'js> FromJs<'js> for InteropData {
+    fn from_js(_: &Ctx<'js>, value: JsValue<'js>) -> JsResult<Self> {
+        Ok(Class::<Self>::from_value(&value)?.try_borrow()?.clone())
+    }
+}
+
+impl<'js> IntoJs<'js> for InteropData {
+    fn into_js(self, ctx: &Ctx<'js>) -> JsResult<JsValue<'js>> {
+        Class::instance(ctx.clone(), self).into_js(ctx)
+    }
+}
+
+impl<'js> FromJs<'js> for CopyData {
+    fn from_js(_: &Ctx<'js>, value: JsValue<'js>) -> JsResult<Self> {
+        Ok(Class::<Self>::from_value(&value)?.try_borrow()?.clone())
+    }
+}
+
+impl<'js> IntoJs<'js> for CopyData {
+    fn into_js(self, ctx: &Ctx<'js>) -> JsResult<JsValue<'js>> {
+        Class::instance(ctx.clone(), self).into_js(ctx)
+    }
+}
+
+impl<'js> FromJs<'js> for RcData {
+    fn from_js(_: &Ctx<'js>, value: JsValue<'js>) -> JsResult<Self> {
+        Ok(Class::<Self>::from_value(&value)?.try_borrow()?.clone())
+    }
+}
+
+impl<'js> IntoJs<'js> for RcData {
+    fn into_js(self, ctx: &Ctx<'js>) -> JsResult<JsValue<'js>> {
+        Class::instance(ctx.clone(), self).into_js(ctx)
     }
 }
 
