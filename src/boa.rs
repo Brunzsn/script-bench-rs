@@ -1,6 +1,9 @@
 use std::rc::Rc;
 
 use anyhow::{anyhow, Result};
+
+mod interop;
+pub use interop::BoaInterop;
 use boa_engine::class::{Class, ClassBuilder};
 use boa_engine::object::builtins::JsArray;
 use boa_engine::property::Attribute;

@@ -1,6 +1,9 @@
 use std::rc::Rc;
 
 use anyhow::{anyhow, Result};
+
+mod interop;
+pub use interop::QuickJsInterop;
 use rquickjs::class::{Class, JsClass, Readable, Trace, Tracer};
 use rquickjs::function::{Constructor, This};
 use rquickjs::{

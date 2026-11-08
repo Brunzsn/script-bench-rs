@@ -1,0 +1,15 @@
+fn interop_ping() -> int
+fn interop_id_i64(value: int) -> int
+fn interop_sum_i64_3(a: int, b: int, c: int) -> int
+fn interop_sum_i64_5(a: int, b: int, c: int, d: int, e: int) -> int
+fn interop_id_f64(value: float) -> float
+fn interop_strlen(value: str) -> int
+fn interop_string_out() -> str
+
+on bench_call_empty() -> int
+on bench_call_one_i64() -> int
+on bench_call_three_i64() -> int
+on bench_call_five_i64() -> int
+on bench_call_f64() -> float
+on bench_call_string_in() -> int
+on bench_call_string_out() -> int

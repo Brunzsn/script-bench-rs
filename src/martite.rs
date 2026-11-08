@@ -2,6 +2,9 @@ use anyhow::{anyhow, bail, Result};
 use martite::{Engine as Martite, HostSignature, HostType, Instance, Outcome, Plugin};
 
 use crate::harness::{read_script, Case, Engine, ResultKind, Value as BenchValue};
+
+mod interop;
+pub use interop::MartiteInterop;
 use crate::rng;
 
 pub use martite::HostValue as Value;

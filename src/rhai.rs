@@ -1,6 +1,9 @@
 use std::rc::Rc;
 
 use anyhow::{anyhow, bail, Result};
+
+mod interop;
+pub use interop::RhaiInterop;
 use itertools::Itertools;
 use rhai::{Array, Dynamic};
 

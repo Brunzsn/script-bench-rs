@@ -1,6 +1,9 @@
 use anyhow::{anyhow, Result};
 use roto::{library, List, RotoString, Runtime, Val};
 
+mod interop;
+pub use interop::RotoInterop;
+
 use crate::harness::{script_path, Case, Engine, ResultKind, Value};
 use crate::rng;
 

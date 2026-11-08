@@ -30,6 +30,7 @@ pub enum ResultKind {
 ///
 /// Engines that cannot express a case without host calls leave the relevant
 /// field as `None`; the case is then skipped for that engine.
+#[derive(Clone, Copy)]
 pub struct Scripts {
     pub js: Option<&'static str>,
     pub koto: Option<&'static str>,

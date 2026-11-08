@@ -1,6 +1,9 @@
 use std::rc::Rc;
 
 use anyhow::{anyhow, Result};
+
+mod interop;
+pub use interop::MluaInterop;
 use mlua::{
     Function, Lua, LuaString, MetaMethod, Table, UserData, UserDataMethods, UserDataRef,
     UserDataRegistry,

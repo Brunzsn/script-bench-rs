@@ -9,6 +9,9 @@ fn main() {
             for case in script_bench::cases::CASES {
                 println!("{}", case.name);
             }
+            for case in script_bench::interop::INTEROP_CASES {
+                println!("{}", case.name);
+            }
         }
         Some("wasm") => {
             for case in script_bench::cases::CASES {

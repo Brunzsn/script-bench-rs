@@ -2,6 +2,7 @@
 pub mod boa;
 pub mod cases;
 pub mod harness;
+pub mod interop;
 #[cfg(feature = "koto")]
 pub mod koto;
 #[cfg(feature = "martite")]

@@ -3,6 +3,9 @@ use std::rc::Rc;
 use anyhow::{anyhow, bail, Result};
 use koto::{derive::*, prelude::*, runtime};
 
+mod interop;
+pub use interop::KotoInterop;
+
 use crate::harness::{number_value, read_script, Case, Engine, ResultKind, Value};
 use crate::rng;
 
