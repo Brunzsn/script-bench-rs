@@ -160,28 +160,45 @@ impl BoaInterop {
         let object = value
             .as_object()
             .ok_or_else(|| anyhow!("expected a nested object"))?;
-        let context = &mut self.context;
         let id = object
-            .get(js_string!("id"), context)?
-            .to_number(context)? as i64;
+            .get(js_string!("id"), &mut self.context)
+            .map_err(|error| anyhow!("{error}"))?
+            .to_number(&mut self.context)
+            .map_err(|error| anyhow!("{error}"))? as i64;
         let name = object
-            .get(js_string!("name"), context)?
-            .to_string(context)?
+            .get(js_string!("name"), &mut self.context)
+            .map_err(|error| anyhow!("{error}"))?
+            .to_string(&mut self.context)
+            .map_err(|error| anyhow!("{error}"))?
             .to_std_string()
             .unwrap();
-        let values = object.get(js_string!("values"), context)?;
-        let values = JsArray::from_object(values.as_object().unwrap().clone())?;
+        let values = object
+            .get(js_string!("values"), &mut self.context)
+            .map_err(|error| anyhow!("{error}"))?;
+        let values = JsArray::from_object(values.as_object().unwrap().clone())
+            .map_err(|error| anyhow!("{error}"))?;
         let mut value_sum = 0.0f64;
-        for index in 0..values.length(context)? {
-            value_sum += values.get(index, context)?.to_number(context)?;
+        let length = values
+            .length(&mut self.context)
+            .map_err(|error| anyhow!("{error}"))?;
+        for index in 0..length {
+            value_sum += values
+                .get(index, &mut self.context)
+                .map_err(|error| anyhow!("{error}"))?
+                .to_number(&mut self.context)
+                .map_err(|error| anyhow!("{error}"))?;
         }
-        let child = object.get(js_string!("child"), context)?;
+        let child = object
+            .get(js_string!("child"), &mut self.context)
+            .map_err(|error| anyhow!("{error}"))?;
         let child = child
             .as_object()
             .ok_or_else(|| anyhow!("expected a nested child object"))?;
         let child_id = child
-            .get(js_string!("id"), context)?
-            .to_number(context)? as i64;
+            .get(js_string!("id"), &mut self.context)
+            .map_err(|error| anyhow!("{error}"))?
+            .to_number(&mut self.context)
+            .map_err(|error| anyhow!("{error}"))? as i64;
         Ok(id + name.chars().count() as i64 + value_sum as i64 + child_id)
     }
 

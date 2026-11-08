@@ -43,9 +43,11 @@ pub const FROM_SCRIPT: InteropCase = InteropCase {
 };
 
 fn validate_serde(value: &Value) -> Result<()> {
+    let actual = expect_int(value)?;
+    let expected = host::expected_serde();
     ensure!(
-        expect_int(value)? == host::expected_serde(),
-        "unexpected serde checksum"
+        actual == expected,
+        "unexpected serde checksum: got {actual}, expected {expected}"
     );
     Ok(())
 }

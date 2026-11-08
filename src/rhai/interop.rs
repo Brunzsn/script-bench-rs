@@ -278,11 +278,15 @@ impl InteropEngine for RhaiInterop {
             }
             RhaiMode::SerdeToScript => {
                 let map = serde_map();
-                let result: i64 = self
+                let result: rhai::Dynamic = self
                     .engine
                     .call_fn(&mut self.scope, &self.ast, self.entry, (map,))
                     .map_err(|error| anyhow!("{error}"))?;
-                std::hint::black_box(result);
+                let checksum = result
+                    .as_int()
+                    .or_else(|_| result.as_float().map(|value| value as i64))
+                    .unwrap_or_default();
+                std::hint::black_box(checksum);
             }
             RhaiMode::SerdeFromScript => {
                 let map: rhai::Map = self
@@ -393,11 +397,15 @@ impl InteropEngine for RhaiInterop {
             }
             RhaiMode::SerdeToScript => {
                 let map = serde_map();
-                let result: i64 = self
+                let result: rhai::Dynamic = self
                     .engine
                     .call_fn(&mut self.scope, &self.ast, self.entry, (map,))
                     .map_err(|error| anyhow!("{error}"))?;
-                Ok(Value::Int(result))
+                let checksum = result
+                    .as_int()
+                    .or_else(|_| result.as_float().map(|value| value as i64))
+                    .unwrap_or_default();
+                Ok(Value::Int(checksum))
             }
             RhaiMode::SerdeFromScript => {
                 let map: rhai::Map = self

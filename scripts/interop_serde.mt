@@ -1,13 +1,6 @@
-struct NestedChild {
-    id: int,
-}
-
-struct Nested {
-    id: int,
-    name: str,
-    values: list[float],
-    child: NestedChild,
-}
+use bench.data
+use bench.data.Nested
+use bench.data.NestedChild
 
 on bench_serde_from_script() -> Nested {
     Nested {

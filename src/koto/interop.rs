@@ -86,7 +86,7 @@ fn serde_value() -> KValue {
     let mut map = KMap::new();
     map.insert("id", host::SERDE_ID);
     map.insert("name", host::SERDE_NAME);
-    map.insert("values", KList::with_data(values));
+    map.insert("values", KList::from_slice(&values));
     map.insert("child", child);
     KValue::from(map)
 }
@@ -233,7 +233,7 @@ impl InteropEngine for KotoInterop {
                         .map(|value| KValue::from(i64::from(value)))
                         .collect(),
                 };
-                let list = KValue::from(KList::with_data(data));
+                let list = KValue::from(KList::from_slice(&data));
                 let result = self
                     .engine
                     .call_function(self.entry.clone(), &[list])
@@ -341,7 +341,7 @@ impl InteropEngine for KotoInterop {
                         .map(|value| KValue::from(i64::from(value)))
                         .collect(),
                 };
-                let list = KValue::from(KList::with_data(data));
+                let list = KValue::from(KList::from_slice(&data));
                 let result = self
                     .engine
                     .call_function(self.entry.clone(), &[list])
