@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use rquickjs::{Context, Ctx, Function, Persistent, Result as JsResult, Runtime};
 
 use crate::harness::{number_value, read_script, ResultKind, Value};

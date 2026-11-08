@@ -5,7 +5,9 @@ on bench_error_caught() -> int {
     var index = 0
     while index < 10000 {
         match data.interop_fail() {
-            Err(_) => count += 1,
+            Err(_) => {
+                count += 1
+            }
             Ok(_) => (),
         }
         index += 1
