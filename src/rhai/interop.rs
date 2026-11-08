@@ -7,6 +7,10 @@ use crate::interop::{InteropCase, InteropEngine, InteropOp};
 enum RhaiMode {
     Call,
     CallIn { iterations: usize },
+    Callback {
+        callback: rhai::FnPtr,
+        iterations: usize,
+    },
 }
 
 pub struct RhaiInterop {
@@ -20,11 +24,12 @@ pub struct RhaiInterop {
 
 impl InteropEngine for RhaiInterop {
     fn setup(case: &InteropCase) -> Result<Option<Self>> {
-        let mode = match case.op {
-            InteropOp::Call => RhaiMode::Call,
-            InteropOp::CallIn { iterations } => RhaiMode::CallIn { iterations },
-            _ => return Ok(None),
-        };
+        if !matches!(
+            case.op,
+            InteropOp::Call | InteropOp::CallIn { .. } | InteropOp::Callback { .. }
+        ) {
+            return Ok(None);
+        }
         let Some(script_path) = case.scripts.rhai else {
             return Ok(None);
         };
@@ -39,10 +44,26 @@ impl InteropEngine for RhaiInterop {
             .compile(script.as_str())
             .map_err(|error| anyhow!("{error}"))?;
 
+        let mut scope = rhai::Scope::new();
+        let mode = match case.op {
+            InteropOp::Call => RhaiMode::Call,
+            InteropOp::CallIn { iterations } => RhaiMode::CallIn { iterations },
+            InteropOp::Callback { iterations } => {
+                let callback: rhai::FnPtr = engine
+                    .call_fn(&mut scope, &ast, case.entry, ())
+                    .map_err(|error| anyhow!("{error}"))?;
+                RhaiMode::Callback {
+                    callback,
+                    iterations,
+                }
+            }
+            _ => return Ok(None),
+        };
+
         Ok(Some(Self {
             engine,
             ast,
-            scope: rhai::Scope::new(),
+            scope,
             entry: case.entry,
             mode,
             result: case.result,
@@ -79,6 +100,19 @@ impl InteropEngine for RhaiInterop {
                         )
                         .map_err(|error| anyhow!("{error}"))?;
                     sum += value;
+                }
+                std::hint::black_box(sum);
+            }
+            RhaiMode::Callback {
+                callback,
+                iterations,
+            } => {
+                let mut sum = 0i64;
+                for index in 0..iterations {
+                    let value: i64 = callback
+                        .call(&self.engine, &self.ast, (index as i64,))
+                        .map_err(|error| anyhow!("{error}"))?;
+                    sum = sum.wrapping_add(value);
                 }
                 std::hint::black_box(sum);
             }
@@ -121,6 +155,19 @@ impl InteropEngine for RhaiInterop {
                 }
                 Ok(Value::Float(sum))
             }
+            RhaiMode::Callback {
+                callback,
+                iterations,
+            } => {
+                let mut sum = 0i64;
+                for index in 0..iterations {
+                    let value: i64 = callback
+                        .call(&self.engine, &self.ast, (index as i64,))
+                        .map_err(|error| anyhow!("{error}"))?;
+                    sum = sum.wrapping_add(value);
+                }
+                Ok(Value::Int(sum))
+            }
         }
     }
 }
@@ -137,5 +184,6 @@ fn register_host_functions(engine: &mut rhai::Engine) {
         })
         .register_fn("interop_id_f64", |value: f64| host::id_f64(value))
         .register_fn("interop_strlen", |value: String| host::strlen(&value))
-        .register_fn("interop_string_out", || host::string_out());
+        .register_fn("interop_string_out", || host::string_out())
+        .register_fn("interop_callback", |value: i64| host::callback_value(value));
 }

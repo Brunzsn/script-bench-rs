@@ -8,6 +8,7 @@ use crate::interop::{InteropCase, InteropEngine, InteropOp};
 enum KotoMode {
     Call,
     CallIn { iterations: usize },
+    Callback { iterations: usize },
 }
 
 pub struct KotoInterop {
@@ -22,6 +23,7 @@ impl InteropEngine for KotoInterop {
         let mode = match case.op {
             InteropOp::Call => KotoMode::Call,
             InteropOp::CallIn { iterations } => KotoMode::CallIn { iterations },
+            InteropOp::Callback { iterations } => KotoMode::Callback { iterations },
             _ => return Ok(None),
         };
         let Some(script_path) = case.scripts.koto else {
@@ -41,6 +43,14 @@ impl InteropEngine for KotoInterop {
             .exports()
             .get(case.entry)
             .ok_or_else(|| anyhow!("missing export `{}`", case.entry))?;
+
+        let entry = if matches!(mode, KotoMode::Callback { .. }) {
+            engine
+                .call_function(entry, &[])
+                .map_err(|error| anyhow!("{error}"))?
+        } else {
+            entry
+        };
 
         Ok(Some(Self {
             engine,
@@ -69,6 +79,21 @@ impl InteropEngine for KotoInterop {
                         bail!("interop call-in did not return a number");
                     };
                     sum += f64::from(number);
+                }
+                std::hint::black_box(sum);
+            }
+            KotoMode::Callback { iterations } => {
+                let mut sum = 0i64;
+                for index in 0..iterations {
+                    let arg = KValue::from(index as f64);
+                    let value = self
+                        .engine
+                        .call_function(self.entry.clone(), &[arg])
+                        .map_err(|error| anyhow!("{error}"))?;
+                    let KValue::Number(number) = value else {
+                        bail!("interop callback did not return a number");
+                    };
+                    sum = sum.wrapping_add(f64::from(number) as i64);
                 }
                 std::hint::black_box(sum);
             }
@@ -102,6 +127,21 @@ impl InteropEngine for KotoInterop {
                     sum += f64::from(number);
                 }
                 Ok(Value::Float(sum))
+            }
+            KotoMode::Callback { iterations } => {
+                let mut sum = 0i64;
+                for index in 0..iterations {
+                    let arg = KValue::from(index as f64);
+                    let value = self
+                        .engine
+                        .call_function(self.entry.clone(), &[arg])
+                        .map_err(|error| anyhow!("{error}"))?;
+                    let KValue::Number(number) = value else {
+                        bail!("interop callback did not return a number");
+                    };
+                    sum = sum.wrapping_add(f64::from(number) as i64);
+                }
+                Ok(Value::Int(sum))
             }
         }
     }
@@ -159,5 +199,10 @@ fn register_host_functions(prelude: &koto::runtime::KMap) {
     prelude.add_fn("interop_string_out", |ctx| match ctx.args() {
         [] => Ok(KValue::Str(host::string_out().into())),
         unexpected => unexpected_args("no arguments", unexpected),
+    });
+
+    prelude.add_fn("interop_callback", |ctx| match ctx.args() {
+        [KValue::Number(value)] => Ok(host::callback_value(i64::from(value)).into()),
+        unexpected => unexpected_args("one number", unexpected),
     });
 }

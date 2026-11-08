@@ -10,6 +10,7 @@ use anyhow::{Context as _, Result};
 use crate::harness::{ResultKind, Scripts, Value};
 
 pub mod call_in;
+pub mod callbacks;
 pub mod calls;
 pub mod host;
 
@@ -173,4 +174,5 @@ pub static INTEROP_CASES: &[InteropCase] = &[
     calls::CALL_STRING_IN,
     calls::CALL_STRING_OUT,
     call_in::CALL_IN,
+    callbacks::CALLBACK,
 ];

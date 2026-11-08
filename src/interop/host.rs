@@ -85,6 +85,24 @@ pub fn native_call_in() {
     keep(sum);
 }
 
+/// Expected result of the callback re-entry loop.
+pub fn expected_callback() -> i64 {
+    let mut sum = 0i64;
+    for value in 0..DRIVEN_ITERATIONS as i64 {
+        sum = sum.wrapping_add(callback_value(value));
+    }
+    sum
+}
+
+/// Native baseline for the callback re-entry loop.
+pub fn native_callback() {
+    let mut sum = 0i64;
+    for value in 0..DRIVEN_ITERATIONS as i64 {
+        sum = sum.wrapping_add(callback_value(value));
+    }
+    keep(sum);
+}
+
 #[inline(never)]
 pub fn failing_call() -> Result<i64, String> {
     Err(HOST_ERROR.to_string())

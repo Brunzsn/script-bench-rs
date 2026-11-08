@@ -8,6 +8,7 @@ use crate::interop::{InteropCase, InteropEngine, InteropOp};
 enum QuickJsMode {
     Call,
     CallIn { iterations: usize },
+    Callback { iterations: usize },
 }
 
 pub struct QuickJsInterop {
@@ -24,8 +25,10 @@ impl InteropEngine for QuickJsInterop {
         let mode = match case.op {
             InteropOp::Call => QuickJsMode::Call,
             InteropOp::CallIn { iterations } => QuickJsMode::CallIn { iterations },
+            InteropOp::Callback { iterations } => QuickJsMode::Callback { iterations },
             _ => return Ok(None),
         };
+        let is_callback = matches!(mode, QuickJsMode::Callback { .. });
         let Some(script_path) = case.scripts.js else {
             return Ok(None);
         };
@@ -39,6 +42,11 @@ impl InteropEngine for QuickJsInterop {
                 register_host_functions(&ctx)?;
                 ctx.eval::<(), _>(script.as_str())?;
                 let func = ctx.globals().get::<_, Function>(case.entry)?;
+                let func = if is_callback {
+                    func.call::<_, Function>(())?
+                } else {
+                    func
+                };
                 Ok(Persistent::save(&ctx, func))
             })
             .map_err(|error| anyhow!("{error}"))?;
@@ -77,6 +85,20 @@ impl InteropEngine for QuickJsInterop {
                     })
                     .map_err(|error| anyhow!("{error}"))?;
             }
+            QuickJsMode::Callback { iterations } => {
+                self.context
+                    .with(|ctx| {
+                        let func = entry.restore(&ctx)?;
+                        let mut sum = 0i64;
+                        for index in 0..iterations {
+                            let value: f64 = func.call((index as f64,))?;
+                            sum = sum.wrapping_add(value as i64);
+                        }
+                        std::hint::black_box(sum);
+                        Ok::<(), rquickjs::Error>(())
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
+            }
         }
         Ok(())
     }
@@ -108,6 +130,21 @@ impl InteropEngine for QuickJsInterop {
                     })
                     .map_err(|error| anyhow!("{error}"))?;
                 Ok(Value::Float(sum))
+            }
+            QuickJsMode::Callback { iterations } => {
+                let sum = self
+                    .context
+                    .with(|ctx| {
+                        let func = entry.restore(&ctx)?;
+                        let mut sum = 0i64;
+                        for index in 0..iterations {
+                            let value: f64 = func.call((index as f64,))?;
+                            sum = sum.wrapping_add(value as i64);
+                        }
+                        Ok::<i64, rquickjs::Error>(sum)
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
+                Ok(Value::Int(sum))
             }
         }
     }
@@ -146,6 +183,12 @@ fn register_host_functions(ctx: &Ctx<'_>) -> JsResult<()> {
     let string_out = Function::new(ctx.clone(), || host::string_out())?
         .with_name("interop_string_out")?;
     globals.set("interop_string_out", string_out)?;
+
+    let callback = Function::new(ctx.clone(), |value: f64| {
+        host::callback_value(value as i64) as f64
+    })?
+    .with_name("interop_callback")?;
+    globals.set("interop_callback", callback)?;
 
     Ok(())
 }

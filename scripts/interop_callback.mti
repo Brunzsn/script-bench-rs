@@ -1,0 +1,3 @@
+fn interop_callback(value: int) -> int
+
+on make_callback(value: int) -> int

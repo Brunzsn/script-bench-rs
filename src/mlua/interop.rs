@@ -8,6 +8,7 @@ use crate::interop::{InteropCase, InteropEngine, InteropOp};
 enum MluaMode {
     Call,
     CallIn { iterations: usize },
+    Callback { iterations: usize },
 }
 
 pub struct MluaInterop {
@@ -23,8 +24,10 @@ impl InteropEngine for MluaInterop {
         let mode = match case.op {
             InteropOp::Call => MluaMode::Call,
             InteropOp::CallIn { iterations } => MluaMode::CallIn { iterations },
+            InteropOp::Callback { iterations } => MluaMode::Callback { iterations },
             _ => return Ok(None),
         };
+        let is_callback = matches!(mode, MluaMode::Callback { .. });
         let Some(script_path) = case.scripts.lua else {
             return Ok(None);
         };
@@ -47,6 +50,11 @@ impl InteropEngine for MluaInterop {
             .globals()
             .get::<Function>(case.entry)
             .map_err(|error| anyhow!("{error}"))?;
+        let entry = if is_callback {
+            entry.call::<Function>(()).map_err(|error| anyhow!("{error}"))?
+        } else {
+            entry
+        };
 
         Ok(Some(Self {
             entry,
@@ -74,6 +82,17 @@ impl InteropEngine for MluaInterop {
                 }
                 std::hint::black_box(sum);
             }
+            MluaMode::Callback { iterations } => {
+                let mut sum = 0i64;
+                for index in 0..iterations {
+                    let value: i64 = self
+                        .entry
+                        .call(index as i64)
+                        .map_err(|error| anyhow!("{error}"))?;
+                    sum = sum.wrapping_add(value);
+                }
+                std::hint::black_box(sum);
+            }
         }
         Ok(())
     }
@@ -97,6 +116,17 @@ impl InteropEngine for MluaInterop {
                     sum += value;
                 }
                 Ok(Value::Float(sum))
+            }
+            MluaMode::Callback { iterations } => {
+                let mut sum = 0i64;
+                for index in 0..iterations {
+                    let value: i64 = self
+                        .entry
+                        .call(index as i64)
+                        .map_err(|error| anyhow!("{error}"))?;
+                    sum = sum.wrapping_add(value);
+                }
+                Ok(Value::Int(sum))
             }
         }
     }
@@ -144,6 +174,12 @@ fn register_host_functions(lua: &Lua) -> Result<()> {
         .set(
             "interop_string_out",
             Function::wrap_raw(|| host::string_out()),
+        )
+        .map_err(|error| anyhow!("{error}"))?;
+    globals
+        .set(
+            "interop_callback",
+            Function::wrap_raw(|value: i64| host::callback_value(value)),
         )
         .map_err(|error| anyhow!("{error}"))?;
 

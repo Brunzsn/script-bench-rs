@@ -11,6 +11,7 @@ use super::{LIMITS, MANIFEST};
 enum MartiteMode {
     Call,
     CallIn { iterations: usize },
+    Callback { iterations: usize },
 }
 
 pub struct MartiteInterop {
@@ -25,6 +26,7 @@ impl InteropEngine for MartiteInterop {
         let mode = match case.op {
             InteropOp::Call => MartiteMode::Call,
             InteropOp::CallIn { iterations } => MartiteMode::CallIn { iterations },
+            InteropOp::Callback { iterations } => MartiteMode::Callback { iterations },
             _ => return Ok(None),
         };
         let (Some(script_path), Some(interface_path)) = (
@@ -100,6 +102,22 @@ impl InteropEngine for MartiteInterop {
                 }
                 std::hint::black_box(sum);
             }
+            MartiteMode::Callback { iterations } => {
+                let mut sum = 0i64;
+                for index in 0..iterations {
+                    let outcome = self
+                        .instance
+                        .call(self.entry, vec![Value::Int(index as i64)])
+                        .map_err(|trap| {
+                            anyhow!("Martite interop failed: {}", trap.panic_message())
+                        })?;
+                    let Outcome::Handled(Value::Int(value)) = outcome else {
+                        bail!("expected `{}` to return an int", self.entry);
+                    };
+                    sum = sum.wrapping_add(value);
+                }
+                std::hint::black_box(sum);
+            }
         }
         Ok(())
     }
@@ -147,6 +165,22 @@ impl InteropEngine for MartiteInterop {
                     sum += value;
                 }
                 Ok(BenchValue::Float(sum))
+            }
+            MartiteMode::Callback { iterations } => {
+                let mut sum = 0i64;
+                for index in 0..iterations {
+                    let outcome = self
+                        .instance
+                        .call(self.entry, vec![Value::Int(index as i64)])
+                        .map_err(|trap| {
+                            anyhow!("Martite interop failed: {}", trap.panic_message())
+                        })?;
+                    let Outcome::Handled(Value::Int(value)) = outcome else {
+                        bail!("expected `{}` to return an int", self.entry);
+                    };
+                    sum = sum.wrapping_add(value);
+                }
+                Ok(BenchValue::Int(sum))
             }
         }
     }
@@ -228,5 +262,15 @@ fn register_host_functions(engine: &mut martite::Engine) {
         "bench.data.interop_string_out",
         HostSignature::new(vec![], HostType::Str),
         |_cx, _args| Ok(Value::str(host::string_out())),
+    );
+
+    engine.host_fn(
+        "bench.data.interop_callback",
+        HostSignature::new(vec![HostType::Int], HostType::Int),
+        |_cx, args| {
+            Ok(Value::Int(host::callback_value(
+                args[0].as_int().unwrap_or_default(),
+            )))
+        },
     );
 }

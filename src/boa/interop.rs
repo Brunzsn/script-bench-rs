@@ -10,6 +10,7 @@ use crate::interop::{InteropCase, InteropEngine, InteropOp};
 enum BoaMode {
     Call,
     CallIn { iterations: usize },
+    Callback { iterations: usize },
 }
 
 pub struct BoaInterop {
@@ -34,6 +35,7 @@ impl InteropEngine for BoaInterop {
         let mode = match case.op {
             InteropOp::Call => BoaMode::Call,
             InteropOp::CallIn { iterations } => BoaMode::CallIn { iterations },
+            InteropOp::Callback { iterations } => BoaMode::Callback { iterations },
             _ => return Ok(None),
         };
         let Some(script_path) = case.scripts.js else {
@@ -52,6 +54,17 @@ impl InteropEngine for BoaInterop {
             .global_object()
             .get(JsString::from(case.entry), &mut context)
             .map_err(|error| anyhow!("{error}"))?;
+
+        let entry = if matches!(mode, BoaMode::Callback { .. }) {
+            let Some(factory) = entry.as_callable() else {
+                bail!("callback factory is not callable");
+            };
+            factory
+                .call(&entry, &[], &mut context)
+                .map_err(|error| anyhow!("{error}"))?
+        } else {
+            entry
+        };
 
         Ok(Some(Self {
             context,
@@ -73,6 +86,17 @@ impl InteropEngine for BoaInterop {
                     sum += value
                         .to_number(&mut self.context)
                         .map_err(|error| anyhow!("{error}"))?;
+                }
+                std::hint::black_box(sum);
+            }
+            BoaMode::Callback { iterations } => {
+                let mut sum = 0i64;
+                for index in 0..iterations {
+                    let value = self.call(&[JsValue::from(index as f64)])?;
+                    let number = value
+                        .to_number(&mut self.context)
+                        .map_err(|error| anyhow!("{error}"))?;
+                    sum = sum.wrapping_add(number as i64);
                 }
                 std::hint::black_box(sum);
             }
@@ -98,6 +122,17 @@ impl InteropEngine for BoaInterop {
                         .map_err(|error| anyhow!("{error}"))?;
                 }
                 Ok(Value::Float(sum))
+            }
+            BoaMode::Callback { iterations } => {
+                let mut sum = 0i64;
+                for index in 0..iterations {
+                    let value = self.call(&[JsValue::from(index as f64)])?;
+                    let number = value
+                        .to_number(&mut self.context)
+                        .map_err(|error| anyhow!("{error}"))?;
+                    sum = sum.wrapping_add(number as i64);
+                }
+                Ok(Value::Int(sum))
             }
         }
     }
@@ -167,6 +202,14 @@ fn register_host_functions(context: &mut boa_engine::Context) -> Result<()> {
         0,
         NativeFunction::from_fn_ptr(|_this, _args, _ctx| {
             Ok(JsString::from(host::string_out()).into())
+        }),
+    )?;
+    register(
+        "interop_callback",
+        1,
+        NativeFunction::from_fn_ptr(|_this, args, ctx| {
+            let value = args[0].to_number(ctx)? as i64;
+            Ok(JsValue::from(host::callback_value(value)))
         }),
     )?;
 

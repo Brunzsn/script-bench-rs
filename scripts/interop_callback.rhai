@@ -1,0 +1,3 @@
+fn make_callback() {
+    |value| interop_callback(value)
+}
