@@ -241,8 +241,7 @@ impl InteropEngine for BoaInterop {
                             .map(|value| JsValue::from(f64::from(value))),
                         &mut self.context,
                     ),
-                }
-                .map_err(|error| anyhow!("{error}"))?;
+                };
                 let value = self.call(&[array.into()])?;
                 std::hint::black_box(value);
             }
@@ -318,8 +317,7 @@ impl InteropEngine for BoaInterop {
                             .map(|value| JsValue::from(f64::from(value))),
                         &mut self.context,
                     ),
-                }
-                .map_err(|error| anyhow!("{error}"))?;
+                };
                 let value = self.call(&[array.into()])?;
                 let number = value
                     .to_number(&mut self.context)

@@ -194,12 +194,12 @@ impl InteropEngine for RhaiInterop {
                 let mut values = rhai::Array::new();
                 match value {
                     BulkValue::F64 => {
-                        for value in host::bulk_f64_values(size) {
+                        for value in host::bulk_f64_values(*size) {
                             values.push(rhai::Dynamic::from(value));
                         }
                     }
                     BulkValue::U8 => {
-                        for value in host::bulk_u8_values(size) {
+                        for value in host::bulk_u8_values(*size) {
                             values.push(rhai::Dynamic::from(i64::from(value)));
                         }
                     }
@@ -294,12 +294,12 @@ impl InteropEngine for RhaiInterop {
                 let mut values = rhai::Array::new();
                 match value {
                     BulkValue::F64 => {
-                        for value in host::bulk_f64_values(size) {
+                        for value in host::bulk_f64_values(*size) {
                             values.push(rhai::Dynamic::from(value));
                         }
                     }
                     BulkValue::U8 => {
-                        for value in host::bulk_u8_values(size) {
+                        for value in host::bulk_u8_values(*size) {
                             values.push(rhai::Dynamic::from(i64::from(value)));
                         }
                     }
