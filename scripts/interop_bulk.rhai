@@ -7,7 +7,7 @@ fn bench_bulk_f64_in_list(values) {
 }
 
 fn bench_bulk_u8_in_list(values) {
-    let sum = 0;
+    let sum = 0.0;
     for value in values {
         sum += value;
     }
