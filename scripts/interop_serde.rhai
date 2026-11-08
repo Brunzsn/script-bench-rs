@@ -1,0 +1,17 @@
+fn bench_serde_to_script(value) {
+    value.id
+        + value.name.len
+        + value.values[0]
+        + value.values[1]
+        + value.values[2]
+        + value.child.id
+}
+
+fn bench_serde_from_script() {
+    #{
+        id: 7,
+        name: "interop",
+        values: [1.0, 2.0, 3.0],
+        child: #{ id: 9 },
+    }
+}

@@ -15,6 +15,7 @@ pub const USERDATA_ITERATIONS: usize = 100_000;
 
 /// Iterations used by serde/error cases.
 pub const SMALL_ITERATIONS: usize = 10_000;
+pub const SERDE_ITERATIONS: usize = SMALL_ITERATIONS;
 
 pub const STRING_IN: &str = "interop";
 pub const STRING_OUT: &str = "interop";
@@ -27,6 +28,10 @@ pub const HOST_ERROR: &str = "interop error";
 pub const UPDATE_DT: f64 = 1.5;
 pub const USERDATA_VALUE: i64 = 7;
 pub const USERDATA_STRING: &str = "interop";
+pub const SERDE_ID: i64 = 7;
+pub const SERDE_NAME: &str = "interop";
+pub const SERDE_VALUES: [f64; 3] = [1.0, 2.0, 3.0];
+pub const SERDE_CHILD_ID: i64 = 9;
 
 #[inline(never)]
 pub fn ping() -> i64 {
@@ -127,6 +132,26 @@ pub fn native_bulk_f64(size: usize) {
 pub fn native_bulk_u8(size: usize) {
     let values = bulk_u8_values(size);
     let sum: f64 = values.iter().map(|value| f64::from(*value)).sum();
+    keep(sum);
+}
+
+pub fn serde_checksum() -> i64 {
+    SERDE_ID
+        + SERDE_NAME.len() as i64
+        + SERDE_VALUES.iter().sum::<f64>() as i64
+        + SERDE_CHILD_ID
+}
+
+/// Expected checksum of the serde loops.
+pub fn expected_serde() -> i64 {
+    SERDE_ITERATIONS as i64 * serde_checksum()
+}
+
+pub fn native_serde() {
+    let mut sum = 0i64;
+    for _ in 0..SERDE_ITERATIONS {
+        sum = sum.wrapping_add(serde_checksum());
+    }
     keep(sum);
 }
 

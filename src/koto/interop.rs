@@ -64,6 +64,8 @@ enum KotoMode {
     Userdata,
     BulkListIn { value: BulkValue, size: usize },
     BulkListOut,
+    SerdeToScript,
+    SerdeFromScript,
     Error { propagates: bool },
 }
 
@@ -72,6 +74,51 @@ pub struct KotoInterop {
     entry: KValue,
     mode: KotoMode,
     result: ResultKind,
+}
+
+fn serde_value() -> KValue {
+    let mut child = KMap::new();
+    child.insert("id", host::SERDE_CHILD_ID);
+    let mut values = Vec::new();
+    for value in host::SERDE_VALUES {
+        values.push(KValue::from(value));
+    }
+    let mut map = KMap::new();
+    map.insert("id", host::SERDE_ID);
+    map.insert("name", host::SERDE_NAME);
+    map.insert("values", KList::with_data(values));
+    map.insert("child", child);
+    KValue::from(map)
+}
+
+fn serde_checksum(value: &KValue) -> i64 {
+    let KValue::Map(map) = value else {
+        return 0;
+    };
+    let id = match map.get("id") {
+        Some(KValue::Number(number)) => f64::from(number) as i64,
+        _ => 0,
+    };
+    let name_len = match map.get("name") {
+        Some(KValue::Str(name)) => name.as_str().chars().count() as i64,
+        _ => 0,
+    };
+    let mut value_sum = 0.0f64;
+    if let Some(KValue::List(values)) = map.get("values") {
+        for value in values.data().iter() {
+            if let KValue::Number(number) = value {
+                value_sum += f64::from(number);
+            }
+        }
+    }
+    let child_id = match map.get("child") {
+        Some(KValue::Map(child)) => match child.get("id") {
+            Some(KValue::Number(number)) => f64::from(number) as i64,
+            _ => 0,
+        },
+        _ => 0,
+    };
+    id + name_len + value_sum as i64 + child_id
 }
 
 impl InteropEngine for KotoInterop {
@@ -87,6 +134,10 @@ impl InteropEngine for KotoInterop {
                     size: op.size,
                 },
                 Direction::Out => KotoMode::BulkListOut,
+            },
+            InteropOp::Serde(op) => match op {
+                crate::interop::SerdeOp::ToScript => KotoMode::SerdeToScript,
+                crate::interop::SerdeOp::FromScript => KotoMode::SerdeFromScript,
             },
             InteropOp::Error(op) => KotoMode::Error {
                 propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
@@ -196,6 +247,20 @@ impl InteropEngine for KotoInterop {
                     .map_err(|error| anyhow!("{error}"))?;
                 std::hint::black_box(result);
             }
+            KotoMode::SerdeToScript => {
+                let value = self
+                    .engine
+                    .call_function(self.entry.clone(), &[serde_value()])
+                    .map_err(|error| anyhow!("{error}"))?;
+                std::hint::black_box(value);
+            }
+            KotoMode::SerdeFromScript => {
+                let value = self
+                    .engine
+                    .call_function(self.entry.clone(), &[])
+                    .map_err(|error| anyhow!("{error}"))?;
+                std::hint::black_box(serde_checksum(&value));
+            }
             KotoMode::Error { propagates } => {
                 let result = self.engine.call_function(self.entry.clone(), &[]);
                 match result {
@@ -295,6 +360,23 @@ impl InteropEngine for KotoInterop {
                     bail!("interop bulk case did not return a number");
                 };
                 number_value(self.result, f64::from(number))
+            }
+            KotoMode::SerdeToScript => {
+                let value = self
+                    .engine
+                    .call_function(self.entry.clone(), &[serde_value()])
+                    .map_err(|error| anyhow!("{error}"))?;
+                let KValue::Number(number) = value else {
+                    bail!("interop serde case did not return a number");
+                };
+                number_value(self.result, f64::from(number))
+            }
+            KotoMode::SerdeFromScript => {
+                let value = self
+                    .engine
+                    .call_function(self.entry.clone(), &[])
+                    .map_err(|error| anyhow!("{error}"))?;
+                Ok(Value::Int(serde_checksum(&value)))
             }
             KotoMode::Error { propagates } => {
                 let result = self.engine.call_function(self.entry.clone(), &[]);

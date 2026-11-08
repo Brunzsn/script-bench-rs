@@ -15,6 +15,7 @@ pub mod callbacks;
 pub mod calls;
 pub mod errors;
 pub mod host;
+pub mod serde;
 pub mod userdata;
 
 /// A bulk-data element type.
@@ -209,4 +210,6 @@ pub static INTEROP_CASES: &[InteropCase] = &[
     bulk::U8_OUT_BUFFER_1K,
     bulk::U8_OUT_BUFFER_100K,
     bulk::U8_OUT_BUFFER_1M,
+    serde::TO_SCRIPT,
+    serde::FROM_SCRIPT,
 ];

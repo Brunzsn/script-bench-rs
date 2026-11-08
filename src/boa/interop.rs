@@ -3,7 +3,7 @@ use std::rc::Rc;
 use anyhow::{anyhow, bail, Result};
 use boa_engine::class::{Class, ClassBuilder};
 use boa_engine::object::builtins::{JsArray, JsFloat64Array, JsUint8Array};
-use boa_engine::object::FunctionObjectBuilder;
+use boa_engine::object::{FunctionObjectBuilder, ObjectInitializer};
 use boa_engine::property::Attribute;
 use boa_engine::{
     js_string, Finalize, JsData, JsNativeError, JsString, JsValue, NativeFunction, Source, Trace,
@@ -121,6 +121,8 @@ enum BoaMode {
     BulkListOut,
     BulkBufferIn { value: BulkValue, size: usize },
     BulkBufferOut,
+    SerdeToScript,
+    SerdeFromScript,
     Error { propagates: bool },
 }
 
@@ -132,6 +134,57 @@ pub struct BoaInterop {
 }
 
 impl BoaInterop {
+    fn serde_object(&mut self) -> Result<JsValue> {
+        let context = &mut self.context;
+        let child = ObjectInitializer::new(context)
+            .property(js_string!("id"), host::SERDE_CHILD_ID, Attribute::all())
+            .build();
+        let values = JsArray::from_iter(
+            host::SERDE_VALUES.into_iter().map(JsValue::from),
+            context,
+        );
+        let object = ObjectInitializer::new(context)
+            .property(js_string!("id"), host::SERDE_ID, Attribute::all())
+            .property(
+                js_string!("name"),
+                JsString::from(host::SERDE_NAME),
+                Attribute::all(),
+            )
+            .property(js_string!("values"), values, Attribute::all())
+            .property(js_string!("child"), child, Attribute::all())
+            .build();
+        Ok(object.into())
+    }
+
+    fn serde_checksum(&mut self, value: &JsValue) -> Result<i64> {
+        let object = value
+            .as_object()
+            .ok_or_else(|| anyhow!("expected a nested object"))?;
+        let context = &mut self.context;
+        let id = object
+            .get(js_string!("id"), context)?
+            .to_number(context)? as i64;
+        let name = object
+            .get(js_string!("name"), context)?
+            .to_string(context)?
+            .to_std_string()
+            .unwrap();
+        let values = object.get(js_string!("values"), context)?;
+        let values = JsArray::from_object(values.as_object().unwrap().clone())?;
+        let mut value_sum = 0.0f64;
+        for index in 0..values.length(context)? {
+            value_sum += values.get(index, context)?.to_number(context)?;
+        }
+        let child = object.get(js_string!("child"), context)?;
+        let child = child
+            .as_object()
+            .ok_or_else(|| anyhow!("expected a nested child object"))?;
+        let child_id = child
+            .get(js_string!("id"), context)?
+            .to_number(context)? as i64;
+        Ok(id + name.chars().count() as i64 + value_sum as i64 + child_id)
+    }
+
     fn call(&mut self, args: &[JsValue]) -> Result<JsValue> {
         let Some(func) = self.entry.as_callable() else {
             bail!("interop entry is not callable");
@@ -161,6 +214,10 @@ impl InteropEngine for BoaInterop {
                     size: op.size,
                 },
                 Direction::Out => BoaMode::BulkBufferOut,
+            },
+            InteropOp::Serde(op) => match op {
+                crate::interop::SerdeOp::ToScript => BoaMode::SerdeToScript,
+                crate::interop::SerdeOp::FromScript => BoaMode::SerdeFromScript,
             },
             InteropOp::Error(op) => BoaMode::Error {
                 propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
@@ -282,6 +339,16 @@ impl InteropEngine for BoaInterop {
                 let value = self.call(&[])?;
                 std::hint::black_box(value);
             }
+            BoaMode::SerdeToScript => {
+                let object = self.serde_object()?;
+                let value = self.call(&[object])?;
+                std::hint::black_box(value);
+            }
+            BoaMode::SerdeFromScript => {
+                let value = self.call(&[])?;
+                let checksum = self.serde_checksum(&value)?;
+                std::hint::black_box(checksum);
+            }
             BoaMode::Error { propagates } => match self.call(&[]) {
                 Ok(value) => {
                     if propagates {
@@ -393,6 +460,18 @@ impl InteropEngine for BoaInterop {
                     .to_number(&mut self.context)
                     .map_err(|error| anyhow!("{error}"))?;
                 number_value(self.result, number)
+            }
+            BoaMode::SerdeToScript => {
+                let object = self.serde_object()?;
+                let value = self.call(&[object])?;
+                let number = value
+                    .to_number(&mut self.context)
+                    .map_err(|error| anyhow!("{error}"))?;
+                number_value(self.result, number)
+            }
+            BoaMode::SerdeFromScript => {
+                let value = self.call(&[])?;
+                Ok(Value::Int(self.serde_checksum(&value)?))
             }
             BoaMode::Error { propagates } => match self.call(&[]) {
                 Ok(value) => {

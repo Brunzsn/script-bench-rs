@@ -6,8 +6,8 @@ use rquickjs::class::{Class, JsClass, Readable, Trace, Tracer};
 use rquickjs::function::{Constructor, This};
 use rquickjs::object::Accessor;
 use rquickjs::{
-    Array, Context, Ctx, FromJs, Function, IntoJs, JsLifetime, Persistent, Result as JsResult,
-    Runtime, TypedArray, Value as JsValue,
+    Array, Context, Ctx, FromJs, Function, IntoJs, JsLifetime, Object, Persistent,
+    Result as JsResult, Runtime, TypedArray, Value as JsValue,
 };
 
 use crate::interop::{BulkMode, BulkValue, Direction};
@@ -151,6 +151,8 @@ enum QuickJsMode {
     BulkListOut,
     BulkBufferIn { value: BulkValue, size: usize },
     BulkBufferOut,
+    SerdeToScript,
+    SerdeFromScript,
     Error { propagates: bool },
 }
 
@@ -183,6 +185,10 @@ impl InteropEngine for QuickJsInterop {
                     size: op.size,
                 },
                 Direction::Out => QuickJsMode::BulkBufferOut,
+            },
+            InteropOp::Serde(op) => match op {
+                crate::interop::SerdeOp::ToScript => QuickJsMode::SerdeToScript,
+                crate::interop::SerdeOp::FromScript => QuickJsMode::SerdeFromScript,
             },
             InteropOp::Error(op) => QuickJsMode::Error {
                 propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
@@ -339,6 +345,48 @@ impl InteropEngine for QuickJsInterop {
                     })
                     .map_err(|error| anyhow!("{error}"))?;
             }
+            QuickJsMode::SerdeToScript => {
+                self.context
+                    .with(|ctx| {
+                        let func = entry.restore(&ctx)?;
+                        let child = Object::new(ctx.clone())?;
+                        child.set("id", host::SERDE_CHILD_ID)?;
+                        let values = Array::new(ctx.clone())?;
+                        for (index, value) in host::SERDE_VALUES.iter().enumerate() {
+                            values.set(index, *value)?;
+                        }
+                        let object = Object::new(ctx.clone())?;
+                        object.set("id", host::SERDE_ID)?;
+                        object.set("name", host::SERDE_NAME)?;
+                        object.set("values", values)?;
+                        object.set("child", child)?;
+                        func.call::<_, f64>((object,))?;
+                        Ok::<(), rquickjs::Error>(())
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
+            }
+            QuickJsMode::SerdeFromScript => {
+                let checksum = self
+                    .context
+                    .with(|ctx| {
+                        let func = entry.restore(&ctx)?;
+                        let object: Object = func.call(())?;
+                        let id: f64 = object.get("id")?;
+                        let name: String = object.get("name")?;
+                        let values: Array = object.get("values")?;
+                        let mut sum = 0.0f64;
+                        for value in values.iter::<f64>() {
+                            sum += value?;
+                        }
+                        let child: Object = object.get("child")?;
+                        let child_id: f64 = child.get("id")?;
+                        Ok::<i64, rquickjs::Error>(
+                            id as i64 + name.len() as i64 + sum as i64 + child_id as i64,
+                        )
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
+                std::hint::black_box(checksum);
+            }
             QuickJsMode::Error { propagates } => {
                 let result = self.context.with(|ctx| {
                     let func = entry.restore(&ctx)?;
@@ -481,6 +529,49 @@ impl InteropEngine for QuickJsInterop {
                     })
                     .map_err(|error| anyhow!("{error}"))?;
                 number_value(self.result, sum)
+            }
+            QuickJsMode::SerdeToScript => {
+                let result = self
+                    .context
+                    .with(|ctx| {
+                        let func = entry.restore(&ctx)?;
+                        let child = Object::new(ctx.clone())?;
+                        child.set("id", host::SERDE_CHILD_ID)?;
+                        let values = Array::new(ctx.clone())?;
+                        for (index, value) in host::SERDE_VALUES.iter().enumerate() {
+                            values.set(index, *value)?;
+                        }
+                        let object = Object::new(ctx.clone())?;
+                        object.set("id", host::SERDE_ID)?;
+                        object.set("name", host::SERDE_NAME)?;
+                        object.set("values", values)?;
+                        object.set("child", child)?;
+                        func.call::<_, f64>((object,))
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
+                number_value(self.result, result)
+            }
+            QuickJsMode::SerdeFromScript => {
+                let checksum = self
+                    .context
+                    .with(|ctx| {
+                        let func = entry.restore(&ctx)?;
+                        let object: Object = func.call(())?;
+                        let id: f64 = object.get("id")?;
+                        let name: String = object.get("name")?;
+                        let values: Array = object.get("values")?;
+                        let mut sum = 0.0f64;
+                        for value in values.iter::<f64>() {
+                            sum += value?;
+                        }
+                        let child: Object = object.get("child")?;
+                        let child_id: f64 = child.get("id")?;
+                        Ok::<i64, rquickjs::Error>(
+                            id as i64 + name.len() as i64 + sum as i64 + child_id as i64,
+                        )
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
+                Ok(Value::Int(checksum))
             }
             QuickJsMode::Error { propagates } => {
                 let result = self.context.with(|ctx| {

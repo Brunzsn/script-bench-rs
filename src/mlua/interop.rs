@@ -54,6 +54,8 @@ enum MluaMode {
     BulkListOut,
     BulkBufferIn { value: BulkValue, size: usize },
     BulkBufferOut,
+    SerdeToScript,
+    SerdeFromScript,
     Error { propagates: bool },
 }
 
@@ -66,6 +68,57 @@ pub struct MluaInterop {
 }
 
 impl MluaInterop {
+    fn serde_table(&mut self) -> Result<Table> {
+        let child = self
+            ._lua
+            .create_table()
+            .map_err(|error| anyhow!("{error}"))?;
+        child
+            .set("id", host::SERDE_CHILD_ID)
+            .map_err(|error| anyhow!("{error}"))?;
+        let values = self
+            ._lua
+            .create_table()
+            .map_err(|error| anyhow!("{error}"))?;
+        for (index, value) in host::SERDE_VALUES.iter().enumerate() {
+            values
+                .set(index + 1, *value)
+                .map_err(|error| anyhow!("{error}"))?;
+        }
+        let object = self
+            ._lua
+            .create_table()
+            .map_err(|error| anyhow!("{error}"))?;
+        object
+            .set("id", host::SERDE_ID)
+            .map_err(|error| anyhow!("{error}"))?;
+        object
+            .set("name", host::SERDE_NAME)
+            .map_err(|error| anyhow!("{error}"))?;
+        object
+            .set("values", values)
+            .map_err(|error| anyhow!("{error}"))?;
+        object
+            .set("child", child)
+            .map_err(|error| anyhow!("{error}"))?;
+        Ok(object)
+    }
+
+    fn serde_checksum(&mut self, object: Table) -> Result<i64> {
+        let id: f64 = object.get("id").map_err(|error| anyhow!("{error}"))?;
+        let name: String = object.get("name").map_err(|error| anyhow!("{error}"))?;
+        let values: Table = object
+            .get("values")
+            .map_err(|error| anyhow!("{error}"))?;
+        let mut value_sum = 0.0f64;
+        for value in values.sequence_values::<f64>() {
+            value_sum += value.map_err(|error| anyhow!("{error}"))?;
+        }
+        let child: Table = object.get("child").map_err(|error| anyhow!("{error}"))?;
+        let child_id: f64 = child.get("id").map_err(|error| anyhow!("{error}"))?;
+        Ok(id as i64 + name.len() as i64 + value_sum as i64 + child_id as i64)
+    }
+
     #[cfg(feature = "mlua_luau")]
     fn buffer_in(&mut self, value: BulkValue, size: usize) -> Result<f64> {
         let bytes = match value {
@@ -117,6 +170,10 @@ impl InteropEngine for MluaInterop {
                     size: op.size,
                 },
                 Direction::Out => MluaMode::BulkBufferOut,
+            },
+            InteropOp::Serde(op) => match op {
+                crate::interop::SerdeOp::ToScript => MluaMode::SerdeToScript,
+                crate::interop::SerdeOp::FromScript => MluaMode::SerdeFromScript,
             },
             InteropOp::Error(op) => MluaMode::Error {
                 propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
@@ -276,6 +333,16 @@ impl InteropEngine for MluaInterop {
                     unreachable!("Lua 5.5 does not support buffers");
                 }
             }
+            MluaMode::SerdeToScript => {
+                let table = self.serde_table()?;
+                let result: f64 = self.entry.call(table).map_err(|error| anyhow!("{error}"))?;
+                std::hint::black_box(result);
+            }
+            MluaMode::SerdeFromScript => {
+                let table: Table = self.entry.call(()).map_err(|error| anyhow!("{error}"))?;
+                let checksum = self.serde_checksum(table)?;
+                std::hint::black_box(checksum);
+            }
             MluaMode::Error { propagates } => {
                 let result = self.entry.call::<f64>(());
                 match result {
@@ -388,6 +455,15 @@ impl InteropEngine for MluaInterop {
                 {
                     unreachable!("Lua 5.5 does not support buffers");
                 }
+            }
+            MluaMode::SerdeToScript => {
+                let table = self.serde_table()?;
+                let result: f64 = self.entry.call(table).map_err(|error| anyhow!("{error}"))?;
+                number_value(self.result, result)
+            }
+            MluaMode::SerdeFromScript => {
+                let table: Table = self.entry.call(()).map_err(|error| anyhow!("{error}"))?;
+                Ok(Value::Int(self.serde_checksum(table)?))
             }
             MluaMode::Error { propagates } => {
                 let result = self.entry.call::<f64>(());

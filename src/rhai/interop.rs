@@ -58,6 +58,8 @@ enum RhaiMode {
     Userdata,
     BulkListIn { value: BulkValue, size: usize },
     BulkListOut,
+    SerdeToScript,
+    SerdeFromScript,
     Error { propagates: bool },
 }
 
@@ -70,6 +72,58 @@ pub struct RhaiInterop {
     result: ResultKind,
 }
 
+fn serde_map() -> rhai::Map {
+    let mut child = rhai::Map::new();
+    child.insert("id".into(), rhai::Dynamic::from(host::SERDE_CHILD_ID));
+    let mut values = rhai::Array::new();
+    for value in host::SERDE_VALUES {
+        values.push(rhai::Dynamic::from(value));
+    }
+    let mut map = rhai::Map::new();
+    map.insert("id".into(), rhai::Dynamic::from(host::SERDE_ID));
+    map.insert(
+        "name".into(),
+        rhai::Dynamic::from(host::SERDE_NAME.to_string()),
+    );
+    map.insert("values".into(), rhai::Dynamic::from(values));
+    map.insert("child".into(), rhai::Dynamic::from(child));
+    map
+}
+
+fn serde_checksum(value: rhai::Map) -> i64 {
+    let id = value
+        .get("id")
+        .expect("id")
+        .clone()
+        .cast::<i64>();
+    let name = value
+        .get("name")
+        .expect("name")
+        .clone()
+        .into_immutable_string()
+        .expect("name string");
+    let values = value
+        .get("values")
+        .expect("values")
+        .clone()
+        .cast::<rhai::Array>();
+    let value_sum: f64 = values
+        .iter()
+        .map(|value| value.as_float().unwrap_or(0.0))
+        .sum();
+    let child = value
+        .get("child")
+        .expect("child")
+        .clone()
+        .cast::<rhai::Map>();
+    let child_id = child
+        .get("id")
+        .expect("child id")
+        .clone()
+        .cast::<i64>();
+    id + name.len() as i64 + value_sum as i64 + child_id
+}
+
 impl InteropEngine for RhaiInterop {
     fn setup(case: &InteropCase) -> Result<Option<Self>> {
         if !matches!(
@@ -79,6 +133,7 @@ impl InteropEngine for RhaiInterop {
                 | InteropOp::Callback { .. }
                 | InteropOp::Userdata(_)
                 | InteropOp::Bulk(_)
+                | InteropOp::Serde(_)
                 | InteropOp::Error(_)
         ) {
             return Ok(None);
@@ -120,6 +175,10 @@ impl InteropEngine for RhaiInterop {
                     size: op.size,
                 },
                 Direction::Out => RhaiMode::BulkListOut,
+            },
+            InteropOp::Serde(op) => match op {
+                crate::interop::SerdeOp::ToScript => RhaiMode::SerdeToScript,
+                crate::interop::SerdeOp::FromScript => RhaiMode::SerdeFromScript,
             },
             InteropOp::Error(op) => RhaiMode::Error {
                 propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
@@ -216,6 +275,21 @@ impl InteropEngine for RhaiInterop {
                     .call_fn(&mut self.scope, &self.ast, self.entry, ())
                     .map_err(|error| anyhow!("{error}"))?;
                 std::hint::black_box(result);
+            }
+            RhaiMode::SerdeToScript => {
+                let map = serde_map();
+                let result: i64 = self
+                    .engine
+                    .call_fn(&mut self.scope, &self.ast, self.entry, (map,))
+                    .map_err(|error| anyhow!("{error}"))?;
+                std::hint::black_box(result);
+            }
+            RhaiMode::SerdeFromScript => {
+                let map: rhai::Map = self
+                    .engine
+                    .call_fn(&mut self.scope, &self.ast, self.entry, ())
+                    .map_err(|error| anyhow!("{error}"))?;
+                std::hint::black_box(serde_checksum(map));
             }
             RhaiMode::Error { propagates } => {
                 let result: Result<i64, _> =
@@ -316,6 +390,21 @@ impl InteropEngine for RhaiInterop {
                     .call_fn(&mut self.scope, &self.ast, self.entry, ())
                     .map_err(|error| anyhow!("{error}"))?;
                 Ok(Value::Float(result))
+            }
+            RhaiMode::SerdeToScript => {
+                let map = serde_map();
+                let result: i64 = self
+                    .engine
+                    .call_fn(&mut self.scope, &self.ast, self.entry, (map,))
+                    .map_err(|error| anyhow!("{error}"))?;
+                Ok(Value::Int(result))
+            }
+            RhaiMode::SerdeFromScript => {
+                let map: rhai::Map = self
+                    .engine
+                    .call_fn(&mut self.scope, &self.ast, self.entry, ())
+                    .map_err(|error| anyhow!("{error}"))?;
+                Ok(Value::Int(serde_checksum(map)))
             }
             RhaiMode::Error { propagates } => {
                 let result: Result<i64, _> =

@@ -17,6 +17,7 @@ enum MartiteMode {
     Userdata,
     BulkListIn { value: BulkValue, size: usize },
     BulkListOut,
+    SerdeFromScript,
     Error { propagates: bool },
 }
 
@@ -41,6 +42,9 @@ impl InteropEngine for MartiteInterop {
                 },
                 Direction::Out => MartiteMode::BulkListOut,
             },
+            InteropOp::Serde(crate::interop::SerdeOp::FromScript) => {
+                MartiteMode::SerdeFromScript
+            }
             InteropOp::Error(op) => MartiteMode::Error {
                 propagates: matches!(op, crate::interop::ErrorOp::PropagatesToHost),
             },
@@ -179,6 +183,16 @@ impl InteropEngine for MartiteInterop {
                     })?;
                 std::hint::black_box(outcome);
             }
+            MartiteMode::SerdeFromScript => {
+                let outcome = self
+                    .instance
+                    .call(self.entry, Vec::new())
+                    .map_err(|trap| {
+                        anyhow!("Martite interop failed: {}", trap.panic_message())
+                    })?;
+                let checksum = martite_serde_checksum(outcome)?;
+                std::hint::black_box(checksum);
+            }
             MartiteMode::Error { propagates } => {
                 let outcome = self
                     .instance
@@ -313,6 +327,15 @@ impl InteropEngine for MartiteInterop {
                     Outcome::NoHandler => bail!("Martite plugin has no `{}` handler", self.entry),
                 }
             }
+            MartiteMode::SerdeFromScript => {
+                let outcome = self
+                    .instance
+                    .call(self.entry, Vec::new())
+                    .map_err(|trap| {
+                        anyhow!("Martite interop failed: {}", trap.panic_message())
+                    })?;
+                Ok(BenchValue::Int(martite_serde_checksum(outcome)?))
+            }
             MartiteMode::Error { propagates } => {
                 let outcome = self
                     .instance
@@ -333,6 +356,30 @@ impl InteropEngine for MartiteInterop {
             }
         }
     }
+}
+
+fn martite_serde_checksum(outcome: Outcome) -> Result<i64> {
+    let Outcome::Handled(Value::Struct(nested)) = outcome else {
+        bail!("expected a nested struct result");
+    };
+    let id = nested.fields[0].as_int().unwrap_or_default();
+    let name_len = nested.fields[1]
+        .as_str()
+        .map(|name| name.chars().count() as i64)
+        .unwrap_or_default();
+    let mut value_sum = 0.0f64;
+    if let Value::List(values) = &nested.fields[2] {
+        for value in values.iter() {
+            if let Value::Float(value) = value {
+                value_sum += value;
+            }
+        }
+    }
+    let child_id = match &nested.fields[3] {
+        Value::Struct(child) => child.fields[0].as_int().unwrap_or_default(),
+        _ => 0,
+    };
+    Ok(id + name_len + value_sum as i64 + child_id)
 }
 
 fn register_host_functions(engine: &mut martite::Engine) {
