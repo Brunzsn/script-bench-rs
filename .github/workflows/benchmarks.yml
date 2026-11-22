@@ -18,9 +18,24 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  all:
+  bench:
+    name: ${{ matrix.engine }}
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        engine:
+          - boa
+          - koto
+          - martite
+          - mlua_lua55
+          - mlua_luau
+          - rhai
+          - roto
+          - rquickjs
+          - wasmi
+          - wasmtime
     steps:
       - name: Checkout benchmark fork
         uses: actions/checkout@v4
@@ -43,6 +58,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: bench
+          key: bench-${{ matrix.engine }}
 
       - name: Cache cargo-criterion
         uses: actions/cache@v4
@@ -56,11 +72,58 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Run full benchmark suite
+      - name: Run native and ${{ matrix.engine }} benchmarks
         working-directory: bench
-        run: uv run bench.py
+        run: uv run bench.py --engine ${{ matrix.engine }}
 
       - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-${{ matrix.engine }}
+          path: |
+            bench/target/benchmark-results.json
+            bench/target/runner.json
+
+  summary:
+    needs: bench
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout benchmark fork
+        uses: actions/checkout@v4
+        with:
+          path: bench
+
+      - name: Checkout Martite
+        uses: actions/checkout@v4
+        with:
+          repository: Brunzsn/Martite
+          path: martite
+          ref: ${{ github.event.inputs['martite-ref'] || 'dev' }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: bench
+          key: bench-summary
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Download engine results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: results-*
+          path: results
+
+      - name: Consolidate results
+        working-directory: bench
+        run: uv run bench.py --summary ../results
+
+      - name: Upload summary
         uses: actions/upload-artifact@v4
         with:
           name: script-bench-results
@@ -68,3 +131,4 @@ jobs:
             bench/*.png
             bench/target/benchmark-results.json
             bench/target/benchmark-relative.json
+            bench/target/runners.json

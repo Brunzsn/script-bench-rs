@@ -22,7 +22,7 @@ You also must have `wasm32-unknown-unknown` target installed for webassembly ben
 
 The Martite benchmark uses a sibling checkout at `../martite` for its path dependency. Clone both repositories side by side, or let the GitHub Actions workflow configure the same layout.
 
-The `benchmarks` workflow runs the full suite on `ubuntu-latest`. Those results are saved as artifacts and are not directly comparable to the macOS numbers below.
+The `benchmarks` workflow splits the engines across a matrix of `ubuntu-latest` runners. Each matrix job measures `native` and one engine back to back (`uv run bench.py --engine <name>`) and uploads raw results; a summary job (`uv run bench.py --summary <dir>`) merges them into consolidated figures and only runs when every engine job passed. Those artifacts are not directly comparable to the macOS numbers below.
 
 The `checks` workflow is the fast path for pull requests and pushes: it compiles every engine and runs each registered case once (criterion `--test` mode) without collecting measurements.
 
@@ -73,7 +73,8 @@ Everything else (criterion targets, validation reporting, plots) is driven by th
 
 - **Deterministic inputs.** The interop case receives the same input stream from a fixed-seed SplitMix64 generator (`src/rng.rs`). Pure-compute cases use fixed constants and in-script deterministic generators, so no host RNG is involved. The generator is reset before each validation and timed iteration.
 - **Cross-engine validation.** Each engine's result is checked against the native Rust reference. The sort case is checked by item count, ordering, and an FNV-1a checksum; scalar cases check exact integers or floating-point results within a tolerance. A mismatch fails `cargo bench -- --test` in the checks workflow.
-- **Native baseline.** The `native` criterion target runs the same workload as every case, including interop cases. Plots label every engine with its multiple of that baseline, and `target/benchmark-relative.json` contains the raw ratios.
+- **Native baseline.** The `native` criterion target runs the same workload as every case, including interop cases. Figures use each engine's multiple of that baseline as the bar height, and `target/benchmark-relative.json` contains the raw ratios.
+- **CI normalization.** The `benchmarks` workflow runs one job per engine, and each job also runs the `native` target on the same runner. Ratios are computed against that job's native run, so bars stay comparable across CI runners; raw milliseconds in `benchmark-results.json` and the merged native dump are per-runner and not comparable. `runners.json` in the summary artifact records the CPU model each engine ran on, and ratios can still drift a few percent between runners with different microarchitectures.
 - **Interop workloads.** Interop cases use fixed iteration counts and deterministic one-valued payloads. Script-to-host calls and userdata operations use 100k iterations; Rust-driven call-in and callbacks use 100k; serde and error paths use 10k. Bulk cases use 1k, 100k and 1M elements. The native baseline performs the same number of operations and is kept observable with `black_box`.
 - **Statistics.** Criterion uses 50 samples, a 3 second warm-up, and a 10 second measurement window.
 - **Lua.** No engine receives a `table` preallocation shim; all scripts use ordinary empty tables or lists.
@@ -98,6 +99,8 @@ Everything else (criterion targets, validation reporting, plots) is driven by th
 
 ## Results
 
-![Sort Rust objects](Sort%20Rust%20objects.png)
+![Overview](overview.png)
+
+![Compute benchmarks](compute.png)
 
 Rev 1791068096
