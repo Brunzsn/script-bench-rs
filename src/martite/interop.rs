@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail, Result};
-use martite::{HostSignature, HostType, Instance, Outcome, Plugin};
+use martite::{HostSignature, HostType, Instance, Outcome};
 
 use crate::harness::{read_script, ResultKind, Value as BenchValue};
 use crate::interop::host;
@@ -22,7 +22,7 @@ enum MartiteMode {
 }
 
 pub struct MartiteInterop {
-    instance: Instance<'static>,
+    instance: Instance,
     entry: &'static str,
     mode: MartiteMode,
     result: ResultKind,
@@ -82,10 +82,8 @@ impl InteropEngine for MartiteInterop {
             )
         })?;
 
-        // `Instance` borrows its `Plugin`, and re-instantiating per iteration
-        // would change what the benchmark measures. The process is short-lived,
-        // so keep the plugin alive for its duration.
-        let plugin: &'static Plugin = Box::leak(Box::new(plugin));
+        // `Instance` owns a handle to its `Plugin`, and re-instantiating per
+        // iteration would change what the benchmark measures.
         let instance = plugin
             .instantiate()
             .map_err(|trap| anyhow!("Martite instantiate failed: {}", trap.panic_message()))?;

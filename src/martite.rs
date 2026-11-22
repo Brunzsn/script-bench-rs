@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail, Result};
-use martite::{Engine as Martite, HostSignature, HostType, Instance, Outcome, Plugin};
+use martite::{Engine as Martite, HostSignature, HostType, Instance, Outcome};
 
 use crate::harness::{read_script, Case, Engine, ResultKind, Value as BenchValue};
 
@@ -29,7 +29,7 @@ grant = ["bench.data"]
 "#;
 
 pub struct MartiteEngine {
-    instance: Instance<'static>,
+    instance: Instance,
     result: ResultKind,
 }
 
@@ -104,11 +104,8 @@ impl Engine for MartiteEngine {
             )
         })?;
 
-        // `Instance` borrows its `Plugin`, and re-instantiating per iteration
-        // would change what the benchmark measures. The process is short-lived,
-        // so keep the plugin alive for its duration.
-        let plugin: &'static Plugin = Box::leak(Box::new(plugin));
-
+        // `Instance` owns a handle to its `Plugin`, and re-instantiating per
+        // iteration would change what the benchmark measures.
         let instance = plugin
             .instantiate()
             .map_err(|trap| anyhow!("Martite instantiate failed: {}", trap.panic_message()))?;
