@@ -128,7 +128,14 @@ jobs:
         with:
           name: script-bench-results
           path: |
-            bench/*.png
+            bench/overview.png
+            bench/compute.png
+            bench/interop-calls.png
+            bench/interop-userdata.png
+            bench/interop-bulk.png
+            bench/interop-serde.png
+            bench/interop-errors.png
             bench/target/benchmark-results.json
             bench/target/benchmark-relative.json
             bench/target/runners.json
+          if-no-files-found: error
