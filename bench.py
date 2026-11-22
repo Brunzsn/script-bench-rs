@@ -269,12 +269,14 @@ def render_overview(relative):
         return
     ordered = sorted(
         (
-            engine,
-            math.exp(sum(math.log(r) for r in ratios) / len(ratios)),
-            len(ratios),
-        )
-        for engine, ratios in ratios_by_engine.items()
-        key=lambda row: row[1]
+            (
+                engine,
+                math.exp(sum(math.log(r) for r in ratios) / len(ratios)),
+                len(ratios),
+            )
+            for engine, ratios in ratios_by_engine.items()
+        ),
+        key=lambda row: row[1],
     )
     names = [display_name(engine) for engine, _, _ in ordered]
     geomeans = [geo for _, geo, _ in ordered]
